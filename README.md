@@ -1,15 +1,125 @@
-# Credit Scoring Project
+# 💳 Credit Scoring Project (ระบบประเมินความเสี่ยงสินเชื่อ)
 
-## Overview
-This project aims to build a credit scoring model using machine learning techniques.
+โปรเจกต์นี้จัดทำขึ้นเพื่อพัฒนาโมเดล Machine Learning สำหรับประเมินความเสี่ยงในการผิดนัดชำระหนี้ (Credit Risk Scoring) โดยใช้ชุดข้อมูลจาก **Home Credit Default Risk** เป้าหมายคือการช่วยให้สถาบันการเงินสามารถตัดสินใจอนุมัติสินเชื่อได้อย่างแม่นยำและรวดเร็วผ่าน Web Application ที่ใช้งานง่าย
 
-## Structure
-- `data/`: Contains raw, processed, and external data.
-- `notebooks/`: Jupyter notebooks for EDA, feature engineering, training, and evaluation.
-- `src/`: Source code for data processing and modeling.
-- `models/`: Trained models and scorecard tables.
-- `app/`: Streamlit application for demonstration.
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![Streamlit](https://img.shields.io/badge/Streamlit-App-red)
+![LightGBM](https://img.shields.io/badge/Model-LightGBM-green)
 
-## Setup
-1. Install dependencies: `pip install -r requirements.txt`
-2. Run the application: `streamlit run app/streamlit_app.py`
+---
+
+## 🚀 ฟีเจอร์หลัก (Key Features)
+
+- **Comprehensive Data Pipeline**: 
+  - การทำความสะอาดข้อมูล (Data Cleaning) และจัดการ Missing Values ตามหลักสถิติ
+  - การรวมข้อมูลจากหลายตาราง (Bureau, Previous Applications, Installments)
+- **Advanced Feature Engineering**: 
+  - สร้างตัวแปรใหม่กว่า 200+ ตัว (Domain Knowledge Features)
+  - การคำนวณอัตราส่วนทางการเงิน (Financial Ratios)
+  - จัดการข้อมูล Categorical ด้วย One-Hot Encoding
+- **Robust Modeling**: 
+  - ใช้โมเดล **LightGBM** ซึ่งมีประสิทธิภาพสูงกับข้อมูลตาราง (Tabular Data)
+  - การปรับ Hyperparameters เพื่อความแม่นยำสูงสุด
+  - การจัดการ Class Imbalance ด้วย SMOTE (Optional)
+- **Interactive Web App**:
+  - แอปพลิเคชัน Streamlit ภาษาไทยสมบูรณ์แบบ
+  - ระบบ **Smart Defaults** ใช้ค่ามัธยฐาน (Median) สำหรับข้อมูลที่ผู้ใช้ไม่ได้กรอก ป้องกันการทำนายผิดพลาด
+  - แสดงผลคะแนนเครดิต (Credit Score) และระดับความเสี่ยง (Risk Level) แบบ Real-time
+
+---
+
+## 📂 โครงสร้างโปรเจกต์ (Project Structure)
+
+```text
+credit-scoring-project/
+├── app/
+│   └── streamlit_app.py    # ซอร์สโค้ดหลักของ Web Application
+├── data/
+│   ├── raw/                # ข้อมูลดิบ (จาก Kaggle)
+│   ├── processed/          # ข้อมูลที่ผ่านการทำความสะอาดแล้ว
+│   └── features/           # ข้อมูลที่ทำ Feature Engineering แล้ว
+├── models/
+│   ├── best_model_lgbm.pkl # โมเดล LightGBM ที่เทรนเสร็จแล้ว
+│   ├── scaler.joblib       # ตัวแปลงข้อมูล (RobustScaler)
+│   ├── imputer.joblib      # ตัวเติมข้อมูล (SimpleImputer)
+│   └── scorecard/          # (Optional) ตารางคะแนนสำหรับ Credit Scorecard
+├── notebooks/
+│   ├── 01_eda_data_understanding.ipynb  # สำรวจข้อมูลเบื้องต้น (EDA)
+│   ├── 02_data_cleaning_joining.ipynb   # รวมตารางและทำความสะอาด
+│   ├── 03_feature_engineering.ipynb     # สร้างตัวแปรใหม่และเตรียมข้อมูล
+│   ├── 04_modeling_training.ipynb       # เทรนและคัดเลือกโมเดล
+│   └── 05_evaluation_analysis.ipynb     # วัดผลและวิเคราะห์ (SHAP, AUC)
+├── src/
+│   ├── recreate_scaling.py # สคริปต์สร้าง Scaler/Imputer ใหม่
+│   ├── compute_medians.py  # สคริปต์คำนวณค่ากลางสำหรับแอป
+│   └── inspect_model.py    # สคริปต์ตรวจสอบ Feature Importance
+├── requirements.txt        # รายชื่อ Library ที่ต้องใช้
+└── README.md               # เอกสารประกอบโปรเจกต์
+```
+
+---
+
+## 🛠 การติดตั้ง (Installation)
+
+1. **Clone Repository**
+   ```bash
+   git clone https://github.com/yourusername/credit-scoring-project.git
+   cd credit-scoring-project
+   ```
+
+2. **สร้าง Environment และติดตั้ง Library**
+   แนะนำให้ใช้ Virtual Environment:
+   ```bash
+   python -m venv venv
+   # Windows
+   .\venv\Scripts\activate
+   # macOS/Linux
+   source venv/bin/activate
+   ```
+   
+   จากนั้นติดตั้ง dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **เตรียม Artifacts (ถ้าจำเป็น)**
+   หากต้องการสร้างไฟล์ Scaler, Imputer หรือ Medians ใหม่:
+   ```bash
+   python src/recreate_scaling.py
+   python src/compute_medians.py
+   ```
+
+---
+
+## 🖥 การใช้งาน (Usage)
+
+### 1. รัน Web Application
+แอปพลิเคชันถูกออกแบบมาให้ใช้งานง่ายด้วยคำสั่งเดียว:
+```bash
+streamlit run app/streamlit_app.py
+```
+> ระบบจะเปิดหน้าเว็บขึ้นมาใน Browser โดยอัตโนมัติ (ปกติที่ http://localhost:8501)
+
+### 2. การเทรนโมเดลใหม่ (Jupyter Notebooks)
+หากต้องการศึกษาขั้นตอนการทำงานหรือเทรนโมเดลใหม่ ให้รัน Notebook ตามลำดับเลข:
+1. `01_eda_data_understanding.ipynb`
+2. `02_data_cleaning_joining.ipynb`
+3. `03_feature_engineering.ipynb`
+4. `04_modeling_training.ipynb`
+
+---
+
+## 📊 ผลลัพธ์และประสิทธิภาพ (Performance)
+
+- **Model**: LightGBM Classifier
+- **Preprocessing**: RobustScaler (ทนทานต่อ Outliers), Median Imputation
+- **Evaluation Metric**: ROC-AUC
+- **Explainability**: ใช้ SHAP Values ในการตรวจสอบปัจจัยที่มีผลต่อการอนุมัติสินเชื่อ
+
+---
+
+## 👥 ผู้จัดทำ
+**Suphakit** - *Developer & Data Scientist*
+
+---
+*Created with ❤️ using Python & Streamlit*
