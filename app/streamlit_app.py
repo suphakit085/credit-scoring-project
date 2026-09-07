@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
 
 
@@ -30,6 +31,7 @@ st.set_page_config(
 
 
 LABELS = {
+    "gender": {"F": "หญิง", "M": "ชาย", "XNA": "ไม่ระบุ"},
     "education": {
         "Secondary / secondary special": "มัธยมศึกษา",
         "Higher education": "ปริญญาตรี",
@@ -382,8 +384,36 @@ def get_bundle():
     return load_bundle(DEFAULT_BUNDLE_PATH)
 
 
+UNKNOWN_CHOICE = "__unknown__"
+
+
 def format_choice(group: str):
-    return lambda value: LABELS[group].get(value, value)
+    """Thai label where one exists, otherwise the Home Credit value itself.
+
+    Categories come from the bundle, so most of them have no hand-written Thai
+    label. Showing the raw value is better than hiding the option: hiding it is
+    what forced officers to pick a wrong category.
+    """
+
+    def render(value: object) -> str:
+        if value == UNKNOWN_CHOICE:
+            return "ไม่ระบุ / ไม่พบข้อมูล"
+        return LABELS.get(group, {}).get(value, str(value))
+
+    return render
+
+
+def category_options(bundle: dict, column: str, group: str) -> list[str]:
+    options = list(bundle.get("input_categories", {}).get(column, ()))
+    if not options:
+        options = list(LABELS.get(group, {}))
+    if bundle.get("input_missing_rates", {}).get(column, 0.0) > 0:
+        options = [UNKNOWN_CHOICE, *options]
+    return options
+
+
+def category_value(choice: object) -> object:
+    return np.nan if choice == UNKNOWN_CHOICE else choice
 
 
 def render_brand() -> None:
@@ -553,17 +583,25 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
     with st.sidebar.form("applicant_form", border=False):
         with st.expander("01  ผู้สมัครและครอบครัว", expanded=True):
             gender = st.selectbox(
-                "เพศ", ["F", "M"], format_func=lambda value: "หญิง" if value == "F" else "ชาย"
+                "เพศ",
+                category_options(bundle, "CODE_GENDER", "gender"),
+                format_func=format_choice("gender"),
             )
             age = st.slider("อายุ (ปี)", 20, 70, 35)
             education = st.selectbox(
-                "ระดับการศึกษา", list(LABELS["education"]), format_func=format_choice("education")
+                "ระดับการศึกษา",
+                category_options(bundle, "NAME_EDUCATION_TYPE", "education"),
+                format_func=format_choice("education"),
             )
             family_status = st.selectbox(
-                "สถานะครอบครัว", list(LABELS["family"]), format_func=format_choice("family")
+                "สถานะครอบครัว",
+                category_options(bundle, "NAME_FAMILY_STATUS", "family"),
+                format_func=format_choice("family"),
             )
             housing_type = st.selectbox(
-                "ประเภทที่อยู่อาศัย", list(LABELS["housing"]), format_func=format_choice("housing")
+                "ประเภทที่อยู่อาศัย",
+                category_options(bundle, "NAME_HOUSING_TYPE", "housing"),
+                format_func=format_choice("housing"),
             )
             children = st.number_input("จำนวนบุตร", min_value=0, max_value=15, value=0)
 
@@ -583,50 +621,91 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
 
         with st.expander("03  การทำงานและทรัพย์สิน"):
             income_type = st.selectbox(
-                "ประเภทรายได้", list(LABELS["income"]), format_func=format_choice("income")
+                "ประเภทรายได้",
+                category_options(bundle, "NAME_INCOME_TYPE", "income"),
+                format_func=format_choice("income"),
             )
-            employment_years = st.slider("อายุงาน (ปี)", 0, 50, 5)
+            # ในข้อมูลฝึก DAYS_EMPLOYED ของ Pensioner และ Unemployed เป็น sentinel
+            # 365243 ครบ 100% และไม่พบในประเภทอื่นเลย preprocessing แปลงเป็นค่าว่าง
+            # พร้อมตั้ง DAYS_EMPLOYED_ANOM = 1 ฟอร์มจึงต้องส่งค่าแบบเดียวกัน
+            not_employed = income_type in {"Pensioner", "Unemployed"}
+            employment_years = st.slider(
+                "อายุงาน (ปี)",
+                0,
+                50,
+                5,
+                disabled=not_employed,
+                help=(
+                    "ผู้รับบำนาญและผู้ไม่ได้ทำงานถูกบันทึกเป็นไม่มีข้อมูลการจ้างงาน"
+                    if not_employed
+                    else None
+                ),
+            )
             occupation = st.selectbox(
-                "อาชีพ", list(LABELS["occupation"]), format_func=format_choice("occupation")
+                "อาชีพ",
+                category_options(bundle, "OCCUPATION_TYPE", "occupation"),
+                format_func=format_choice("occupation"),
+                help="เลือกไม่ระบุได้ ข้อมูลฝึกไม่มีอาชีพถึง 31% ของผู้สมัคร",
             )
             organization = st.selectbox(
-                "ประเภทองค์กร", list(LABELS["organization"]), format_func=format_choice("organization")
+                "ประเภทองค์กร",
+                category_options(bundle, "ORGANIZATION_TYPE", "organization"),
+                format_func=format_choice("organization"),
             )
             flag_col_1, flag_col_2 = st.columns(2)
             own_car = flag_col_1.checkbox("มีรถยนต์")
             own_realty = flag_col_2.checkbox("มีอสังหาฯ", value=True)
             work_phone = st.checkbox("มีเบอร์โทรศัพท์ที่ทำงาน", value=True)
 
-        with st.expander("04  เครดิตภายนอก"):
-            st.caption("ให้คะแนนจาก 0.0 (ต่ำ) ถึง 1.0 (สูง)")
-            ext_source_1 = st.slider("แหล่งข้อมูล 1", 0.0, 1.0, 0.5)
-            ext_source_2 = st.slider("แหล่งข้อมูล 2", 0.0, 1.0, 0.5)
-            ext_source_3 = st.slider("แหล่งข้อมูล 3", 0.0, 1.0, 0.5)
+        with st.expander("04  คะแนนเครดิตภายนอก"):
+            st.caption(
+                "เจ้าหน้าที่สินเชื่อกรอกค่าที่ดึงจากระบบเครดิตภายนอกเท่านั้น ห้ามประมาณค่าเอง "
+                "หากระบบไม่มีข้อมูลของผู้สมัครรายนี้ ให้ติ๊ก ไม่พบในระบบ "
+                "แบบจำลองจะได้รับค่าว่างซึ่งตรงกับที่ข้อมูลฝึกบันทึกไว้ ไม่ใช่ค่าที่เดาขึ้นมา"
+            )
+            ext_sources: dict[str, object] = {}
+            for number in (1, 2, 3):
+                value_column, missing_column = st.columns([2, 1])
+                unavailable = missing_column.checkbox(
+                    "ไม่พบในระบบ", key=f"ext_source_missing_{number}"
+                )
+                entered = value_column.number_input(
+                    f"แหล่งข้อมูล {number}",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.50,
+                    step=0.01,
+                    format="%.4f",
+                    disabled=unavailable,
+                    key=f"ext_source_value_{number}",
+                )
+                ext_sources[f"EXT_SOURCE_{number}"] = (
+                    np.nan if unavailable else float(entered)
+                )
 
         submitted = st.form_submit_button("ประเมินความเสี่ยง", type="primary", use_container_width=True)
 
     values = {
-        "CODE_GENDER": gender,
+        "CODE_GENDER": category_value(gender),
         "DAYS_BIRTH": -age * 365.25,
-        "NAME_EDUCATION_TYPE": education,
-        "NAME_FAMILY_STATUS": family_status,
-        "NAME_HOUSING_TYPE": housing_type,
+        "NAME_EDUCATION_TYPE": category_value(education),
+        "NAME_FAMILY_STATUS": category_value(family_status),
+        "NAME_HOUSING_TYPE": category_value(housing_type),
         "CNT_CHILDREN": children,
         "CNT_FAM_MEMBERS": children + (2 if family_status in {"Married", "Civil marriage"} else 1),
         "AMT_INCOME_TOTAL": income,
         "AMT_CREDIT": credit,
         "AMT_ANNUITY": annuity,
         "AMT_GOODS_PRICE": goods_price,
-        "NAME_INCOME_TYPE": income_type,
-        "DAYS_EMPLOYED": -employment_years * 365.25,
-        "OCCUPATION_TYPE": occupation,
-        "ORGANIZATION_TYPE": organization,
+        "NAME_INCOME_TYPE": category_value(income_type),
+        "DAYS_EMPLOYED": np.nan if not_employed else -employment_years * 365.25,
+        "DAYS_EMPLOYED_ANOM": 1 if not_employed else 0,
+        "OCCUPATION_TYPE": category_value(occupation),
+        "ORGANIZATION_TYPE": category_value(organization),
         "FLAG_OWN_CAR": "Y" if own_car else "N",
         "FLAG_OWN_REALTY": "Y" if own_realty else "N",
         "FLAG_WORK_PHONE": int(work_phone),
-        "EXT_SOURCE_1": ext_source_1,
-        "EXT_SOURCE_2": ext_source_2,
-        "EXT_SOURCE_3": ext_source_3,
+        **ext_sources,
     }
     return submitted, values
 
@@ -643,6 +722,22 @@ def main() -> None:
         st.stop()
 
     submitted, values = collect_sidebar_inputs(bundle)
+
+    if submitted:
+        # The form and the bundle must agree exactly. A drift here used to be
+        # invisible: unknown keys were dropped and the applicant was scored on
+        # training defaults instead of on what the officer entered.
+        expected = set(bundle.get("served_columns", ()))
+        supplied = set(values)
+        if expected != supplied:
+            st.error("แบบฟอร์มกับโมเดลไม่ตรงกัน กรุณาเทรนโมเดลใหม่ก่อนใช้งาน")
+            st.write(
+                {
+                    "ฟอร์มส่งมาแต่โมเดลไม่รู้จัก": sorted(supplied - expected),
+                    "โมเดลต้องการแต่ฟอร์มไม่ส่ง": sorted(expected - supplied),
+                }
+            )
+            st.stop()
 
     if submitted:
         try:

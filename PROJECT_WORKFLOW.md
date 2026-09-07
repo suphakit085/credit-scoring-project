@@ -32,13 +32,13 @@ data/processed/train_cleaned.csv
 data/processed/test_cleaned.csv
         |
         v
-แบ่ง Train / Calibration / Validation
+แบ่ง Train / Calibration / Threshold / Validation
         |
         v
 สร้างฟีเจอร์ -> Impute -> Encode -> Scale
         |
         v
-ตัดฟีเจอร์ค่าคงที่ -> เลือก 200 ฟีเจอร์
+ตัดฟีเจอร์ค่าคงที่ -> เลือกฟีเจอร์ตามขอบเขตที่เสิร์ฟได้
         |
         v
 ฝึก LightGBM -> Calibrate Probability -> เลือก Threshold
@@ -116,13 +116,13 @@ Aggregate ทุกตารางจะถูก left join กลับเข�
 คำสั่งสร้างข้อมูล:
 
 ~~~powershell
-..venvScriptspython.exe src/data_preprocessing.py
+python src/data_preprocessing.py
 ~~~
 
 หาก aggregate files มีอยู่แล้ว:
 
 ~~~powershell
-..venvScriptspython.exe src/data_preprocessing.py --reuse-aggregates
+python src/data_preprocessing.py --reuse-aggregates
 ~~~
 
 ## 5. การตรวจสอบคุณภาพข้อมูล
@@ -138,13 +138,13 @@ Aggregate ทุกตารางจะถูก left join กลับเข�
 - จำนวนคอลัมน์ที่มี missing valueมากกว่า 50%
 
 ~~~powershell
-..venvScriptspython.exe src/check_data_quality.py
+python src/check_data_quality.py
 ~~~
 
 ตรวจเพียงบางแถวระหว่างพัฒนา:
 
 ~~~powershell
-..venvScriptspython.exe src/check_data_quality.py --sample-rows 20000
+python src/check_data_quality.py --sample-rows 20000
 ~~~
 
 ## 6. การแบ่งข้อมูลโดยป้องกัน Data Leakage
@@ -155,8 +155,14 @@ Aggregate ทุกตารางจะถูก left join กลับเข�
 | ชุดข้อมูล | สัดส่วน | หน้าที่ |
 |---|---:|---|
 | Training | 70% | Fit imputer, encoder, scaler, selector และ LightGBM |
-| Calibration | 15% | Calibrate probability และเลือก decision threshold |
-| Validation | 15% | ประเมินผลขั้นสุดท้ายเท่านั้น |
+| Calibration | 10% | Fit Isotonic Regression อย่างเดียว |
+| Threshold | 10% | เลือก decision threshold อย่างเดียว |
+| Validation | 10% | ประเมินผลขั้นสุดท้ายเท่านั้น |
+
+เดิมใช้สามชุดโดยให้ calibration split ทำสองหน้าที่พร้อมกัน คือ fit calibrator
+และเลือก threshold บนชุดเดียวกัน ทำให้ threshold ถูกเลือกจาก probability
+ที่ calibrator เห็นมาแล้ว จุดตัดที่ได้จึงมองโลกในแง่ดีเกินจริง ปัจจุบันแยกเป็น
+สี่ชุด แต่ละชุดทำหน้าที่เดียว
 
 ใช้ random_state = 42 และ stratified split เพื่อรักษาสัดส่วน TARGET
 
@@ -219,15 +225,34 @@ Preprocessor เรียนรู้จาก training split เท่านั
 2. แปลงด้วย OneHotEncoder
 3. Category ใหม่ที่ไม่เคยพบตอนฝึกจะไม่ทำให้ระบบ error
 
+### ขอบเขตฟีเจอร์
+
+`--feature-scope` กำหนดว่าโมเดลจะเรียนรู้จากคอลัมน์กลุ่มไหน ค่าเริ่มต้นคือ `form`
+
+| scope | คอลัมน์ | ใช้เมื่อไร |
+|---|---|---|
+| `form` | เฉพาะ 22 คอลัมน์ที่หน้าเว็บเก็บได้ | ค่าเริ่มต้น ตรงกับสิ่งที่เสิร์ฟจริง |
+| `application` | ตาราง application ทั้งหมด ไม่รวม aggregate | เมื่อขยายฟอร์มหรือรับไฟล์นำเข้า |
+| `full` | ทุกคอลัมน์รวมประวัติ | ต่อข้อมูล Bureau จริงแล้วเท่านั้น |
+
+เหตุผลที่ค่าเริ่มต้นเป็น `form` วัดจากข้อมูลชุดนี้โดยตรง โมเดล 495 คอลัมน์
+ได้ ROC-AUC 0.7756 ตอนมีข้อมูลครบ แต่เหลือ 0.7612 เมื่อหน้าเว็บเสิร์ฟจริง
+เพราะ 137 จาก 200 ฟีเจอร์ถูกตรึงที่ค่ามัธยฐาน ขณะที่โมเดลที่เทรนด้วยฟิลด์
+ในฟอร์มอย่างเดียวได้ 0.7672 ซึ่งสูงกว่า การจำกัดขอบเขตจึงเพิ่มคุณภาพ
+ไม่ใช่ลดคุณภาพ
+
 ### การเลือกฟีเจอร์
 
 1. ใช้ VarianceThreshold ตัดคอลัมน์ค่าคงที่
-2. บังคับเก็บฟีเจอร์ทั้งหมดที่ควบคุมโดยช่องกรอกใน Streamlit
+2. บังคับเก็บฟีเจอร์ทุกตัวที่สืบย้อนไปถึงคอลัมน์ที่หน้าเว็บส่งมาได้
 3. เติมฟีเจอร์ที่เหลือตามคะแนน ANOVA F-test
-4. จำกัดจำนวนสุดท้ายไว้ที่ 200 ฟีเจอร์
+4. จำกัดจำนวนสุดท้ายไว้ที่ `--max-features` ค่าเริ่มต้น 200
 
-จึงมั่นใจได้ว่ารายได้ จำนวนบุตร อสังหาริมทรัพย์ ยอดผ่อน
-และข้อมูลอื่นที่ผู้ใช้กรอกถูกส่งเข้าโมเดลจริง
+หลังเลือกเสร็จ `verify_served_coverage` จะตรวจว่าทุกคอลัมน์ที่ฟอร์มเก็บมา
+ยังเหลืออยู่ในโมเดล ไม่ว่าจะในรูปคอลัมน์ตรง missing indicator one-hot
+หรือผ่านฟีเจอร์ที่ derive ออกมา หากมีคอลัมน์ใดหลุดหายไป การเทรนจะหยุด
+พร้อมบอกชื่อคอลัมน์ เดิมระบบข้ามให้เงียบ ทำให้ช่องกรอกที่ผู้ใช้เห็น
+อาจไม่มีผลต่อคำตอบโดยไม่มีใครรู้
 
 ## 9. การฝึก LightGBM
 
@@ -240,20 +265,25 @@ Preprocessor เรียนรู้จาก training split เท่านั
 - learning rate: 0.03
 - leaves: 31
 - minimum child samples: 40
+- row sampling: 0.85 พร้อม `subsample_freq = 1`
 - column sampling: 0.85
 - L1/L2 regularization
 - random state: 42
 
+`subsample_freq` สำคัญมาก LightGBM จะทำ row bagging ก็ต่อเมื่อค่านี้ตั้งแต่ 1
+ขึ้นไป โค้ดเดิมตั้ง `subsample = 0.85` แต่ปล่อย `subsample_freq` เป็นค่าปริยาย 0
+การสุ่มแถวจึงไม่เคยเกิดขึ้นจริงและไม่มีข้อความเตือนใดๆ
+
 ฝึกด้วยข้อมูลเต็ม:
 
 ~~~powershell
-..venvScriptspython.exe src/model_training.py
+python src/model_training.py
 ~~~
 
 Smoke test ด้วยข้อมูลบางส่วน:
 
 ~~~powershell
-..venvScriptspython.exe src/model_training.py --sample-rows 20000 --output models/dev_bundle.joblib
+python src/model_training.py --sample-rows 20000 --output models/dev_bundle.joblib
 ~~~
 
 ห้ามนำ metric จาก smoke test ไปใช้อ้างอิงเป็นผลของโมเดลเต็ม
@@ -263,23 +293,37 @@ Smoke test ด้วยข้อมูลบางส่วน:
 Probability ดิบจาก classifier อาจไม่ตรงกับอัตราผิดนัดจริง
 ระบบจึงใช้ IsotonicRegression กับ calibration split
 
-หลัง calibration ระบบเลือก threshold ที่ให้ F1 score สูงที่สุดบน calibration split
-แล้วนำ threshold ไปประเมินเพียงครั้งเดียวบน validation split
+หลัง calibration ระบบเลือก threshold ที่ให้ F1 score สูงที่สุดบน threshold split
+ซึ่งเป็นคนละชุดกับที่ใช้ fit calibrator แล้วนำ threshold ไปประเมินเพียงครั้งเดียว
+บน validation split
 
-ผลการฝึกล่าสุด:
+ผลการฝึกล่าสุด scope `form` 22 คอลัมน์ 150 ฟีเจอร์:
 
 | Metric | ค่า |
 |---|---:|
-| ROC-AUC | 0.7756 |
-| Brier score | 0.0667 |
-| Decision threshold | 0.1724 |
-| Accuracy | 0.8460 |
-| Precision | 0.2516 |
-| Recall | 0.4597 |
-| F1 | 0.3252 |
+| ROC-AUC | 0.7665 |
+| Average precision | 0.2416 |
+| Brier score | 0.0674 |
+| Decision threshold | 0.1665 |
+| Accuracy | 0.8536 |
+| Precision | 0.2498 |
+| Recall | 0.4060 |
+| F1 | 0.3092 |
+| Positive rate | 0.0807 |
 
 ROC-AUC วัดความสามารถในการจัดลำดับความเสี่ยง ส่วน Brier score
 วัดความคลาดเคลื่อนของ probability โดยค่ายิ่งต่ำยิ่งดี
+
+Average precision เป็นตัวเลขที่ควรดูคู่กันเสมอ เพราะ positive rate อยู่ที่ 8%
+ROC-AUC ในงาน imbalanced มักดูดีเกินจริง ส่วน average precision สะท้อน
+คุณภาพการจัดอันดับเฉพาะกลุ่มที่ผิดนัดจริง เส้นฐานของมันคือ 0.0807
+ซึ่งเท่ากับสัดส่วนผู้ผิดนัดในข้อมูล
+
+ตัวเลขชุดนี้ต่ำกว่า 0.7756 ที่เคยรายงานไว้ แต่เทียบกันตรงๆ ไม่ได้ เพราะ 0.7756
+มาจากโมเดล 495 คอลัมน์ที่ประเมินตอนมีข้อมูลครบทุกช่อง ซึ่งเป็นสถานการณ์ที่
+หน้าเว็บไม่เคยมี เมื่อวัดโมเดลตัวนั้นในสภาพที่หน้าเว็บเสิร์ฟจริงจะได้ 0.7612
+ต่ำกว่าโมเดลปัจจุบัน ตัวเลข 0.7665 จึงเป็นตัวเลขแรกของโปรเจกต์นี้ที่อธิบาย
+ระบบที่ใช้งานจริงได้ตรงตามความเป็นจริง
 
 ## 11. Model Bundle
 
@@ -297,10 +341,15 @@ ROC-AUC วัดความสามารถในการจัดลำด
 - Validation metrics
 - Training metadata
 
-ไฟล์ประกอบ:
+ไฟล์ประกอบตั้งชื่อตาม stem ของ bundle:
 
-- models/model_metrics.json
-- models/feature_importance.csv
+- models/credit_scoring_bundle_metrics.json
+- models/credit_scoring_bundle_feature_importance.csv
+
+เดิมไฟล์สองตัวนี้ใช้ชื่อตายตัวว่า `model_metrics.json` และ
+`feature_importance.csv` การรัน smoke test ด้วย `--output models/dev_bundle.joblib`
+จึงเขียนทับผลของโมเดลเต็ม ซึ่งตรงกับสิ่งที่เอกสารนี้เตือนห้ามไว้พอดี
+ปัจจุบันชื่อไฟล์ผูกกับ stem ของ bundle จึงแยกกันชัดเจน
 
 การรวมองค์ประกอบใน bundle เดียวช่วยป้องกันการใช้ scaler,
 feature order หรือ threshold ผิดรุ่น
@@ -310,18 +359,26 @@ feature order หรือ threshold ผิดรุ่น
 ฟังก์ชัน inference อยู่ใน src/inference.py เมื่อรับข้อมูลผู้สมัคร ระบบจะ:
 
 1. โหลด model bundle
-2. สร้างหนึ่งแถวตาม input schema ตอนฝึก
-3. เติมฟีเจอร์ที่ไม่มีด้วย default จาก training split
-4. เขียนทับ default ด้วยค่าจากผู้ใช้หรือ backend
-5. เรียกสูตร feature generation ชุดเดียวกับตอนฝึก
-6. Transform ด้วย preprocessor
-7. ใช้ variance filter และเลือก 200 ฟีเจอร์
-8. ทำนาย probability ดิบด้วย LightGBM
-9. Calibrate probability
-10. แปลง probability เป็นระดับความเสี่ยงและดัชนี 300–850
+2. ตรวจว่า key ที่ส่งมาอยู่ใน input schema ทุกตัว หากมี key แปลกปลอมจะ raise
+3. สร้างหนึ่งแถวตาม input schema ตอนฝึก
+4. คอลัมน์ใน `served_columns` ที่ไม่ได้ส่งมา ให้เป็นค่าว่าง ไม่ใช่มัธยฐาน
+5. คอลัมน์นอก `served_columns` จึงจะใช้ default จาก training split
+6. เรียกสูตร feature generation ชุดเดียวกับตอนฝึก
+7. Transform ด้วย preprocessor
+8. ใช้ variance filter และเลือกฟีเจอร์ตาม selected_indices
+9. ทำนาย probability ดิบด้วย LightGBM
+10. Calibrate probability
+11. แปลง probability เป็นระดับความเสี่ยงและดัชนี 300–850
 
-ฟีเจอร์ประวัติเครดิตที่หน้าเว็บไม่ได้รับจากผู้ใช้จะใช้ training default
-ใน production ต้องเปลี่ยนเป็นข้อมูลจริงจากแหล่งที่ได้รับอนุญาต
+ข้อ 4 คือหัวใจ การเติมมัธยฐานให้ช่องที่ไม่มีข้อมูลจะทำให้ missing indicator
+ของ imputer เป็น 0 ซึ่งบอกโมเดลว่า "มีข้อมูลและค่าเท่ากับค่ากลาง" ทั้งที่
+ความจริงคือไม่มีข้อมูล ตอนเทรนโมเดลเห็นสถานะไม่มีข้อมูลอยู่บ่อยมาก
+เช่น EXT_SOURCE_1 ขาดหายถึง 56% การส่งค่าว่างจริงจึงเป็นการรักษาความหมาย
+เดียวกันระหว่างตอนเทรนกับตอนใช้งาน
+
+หากภายหลังเปลี่ยนไปใช้ scope `application` หรือ `full` ฟีเจอร์ที่หน้าเว็บ
+ไม่ได้รับจะกลับไปใช้ training default อีกครั้ง ซึ่งต้องเปลี่ยนเป็นการต่อ
+ข้อมูลจริงจากแหล่งที่ได้รับอนุญาตก่อนนำขึ้น production
 
 ## 13. การทำงานของ Streamlit
 
@@ -330,18 +387,40 @@ feature order หรือ threshold ผิดรุ่น
 - ข้อมูลส่วนตัวและครอบครัว
 - รายได้ วงเงิน ยอดผ่อน และราคาสินค้า
 - การทำงาน อาชีพ และทรัพย์สิน
-- External credit scores
+- คะแนนเครดิตภายนอกที่เจ้าหน้าที่กรอกจากระบบ
 
-เมื่อกด **วิเคราะห์ความเสี่ยง**:
+เมื่อกด **ประเมินความเสี่ยง**:
 
 1. แปลงค่าจากแบบฟอร์มเป็นชื่อคอลัมน์ Home Credit
-2. เรียก predict_default_probability
-3. แสดง calibrated probability
-4. แสดงระดับความเสี่ยงตาม threshold ใน bundle
-5. แสดงดัชนีแบบ odds-based
+2. ตรวจว่าชุด key ตรงกับ `served_columns` ของ bundle หากไม่ตรงจะหยุดพร้อมบอกส่วนต่าง
+3. เรียก predict_default_probability
+4. แสดง calibrated probability
+5. แสดงระดับความเสี่ยงตาม threshold ใน bundle
+6. แสดงดัชนีแบบ odds-based
+
+### คะแนนเครดิตภายนอก
+
+ช่อง EXT_SOURCE ทั้งสามเป็นค่าที่เจ้าหน้าที่สินเชื่อดึงจากระบบเครดิตภายนอก
+ไม่ใช่ค่าที่ผู้สมัครประเมินตัวเอง แต่ละช่องมีตัวเลือก **ไม่พบในระบบ**
+ซึ่งจะส่งค่าว่างเข้าแบบจำลอง
+
+ตัวเลือกนี้จำเป็น ไม่ใช่ของประดับ ในข้อมูลฝึก EXT_SOURCE_1 ขาดหายถึง 56%
+หากบังคับให้มีค่าเสมอ โมเดลจะเห็นสถานะที่ต่างจากตอนเทรนในทุกคำทำนาย
+เดิมช่องเหล่านี้เป็นสไลเดอร์ที่ตั้งค่าเริ่มต้นไว้ที่ 0.5 ซึ่งเท่ากับให้ผู้ใช้
+เดาตัวแปรที่มีอิทธิพลสูงสุดต่อคำตอบ วัดแล้วการเลื่อนสไลเดอร์สามตัวนี้
+ทำให้ probability เปลี่ยนจาก 0.006 ถึง 0.45 ขณะที่รายได้ต่อปีตั้งแต่ 30,000
+ถึง 5,000,000 เปลี่ยน probability ไม่ถึง 0.01
+
+### สถานะการจ้างงาน
+
+หากเลือกประเภทรายได้เป็นผู้รับบำนาญหรือไม่ได้ทำงาน ระบบจะส่ง DAYS_EMPLOYED
+เป็นค่าว่างและตั้ง DAYS_EMPLOYED_ANOM เป็น 1 พร้อมปิดช่องอายุงาน
+ตรงกับข้อมูลฝึกซึ่งสองประเภทนี้มี sentinel 365243 ครบ 100% และไม่พบ
+ในประเภทอื่นเลย เดิมหน้าเว็บส่งอายุงาน 0 ปีพร้อม ANOM เป็น 0
+ซึ่งเป็นสถานะที่ข้อมูลฝึกไม่มีอยู่จริง
 
 ~~~powershell
-..venvScriptspython.exe -m streamlit run app/streamlit_app.py
+python -m streamlit run app/streamlit_app.py
 ~~~
 
 เปิดที่ http://localhost:8501
@@ -354,22 +433,33 @@ Tests อยู่ในโฟลเดอร์ tests และครอบค�
 - การป้องกัน division by zero และ infinity
 - การแทน sentinel ของ DAYS_EMPLOYED
 - การ aggregate ตารางประวัติ
-- การสร้าง input row จาก defaults
+- การสร้าง input row จาก defaults และการส่งค่าว่างสำหรับช่องที่ไม่ได้กรอก
+- การ raise เมื่อพบ key ที่ไม่อยู่ใน schema
+- การจำกัดขอบเขตฟีเจอร์ตาม scope
+- การตรวจว่าทุกช่องกรอกยังเหลืออยู่ในโมเดล
 - ความเป็น monotonic และขอบเขตของดัชนี 300–850
 - การจัดระดับความเสี่ยง
+- สัญญาระหว่างฟอร์มกับ bundle แบบ end-to-end ใน tests/test_serving_contract.py
 
 ~~~powershell
-..venvScriptspython.exe -m pytest -q
+pytest
 ~~~
 
-ผลล่าสุด: **9 passed**
+`pyproject.toml` ตั้ง `pythonpath` ไว้แล้ว จึงสั่ง `pytest` ตรงๆ ได้
+เดิมต้องใช้ `python -m pytest` เท่านั้น เพราะไม่มีไฟล์ตั้งค่าใดๆ
+ทำให้ `pytest` เปล่า collection error ทั้งหมด
+
+ผลล่าสุด: **32 passed**
+
+เทสต์ใน tests/test_serving_contract.py ต้องใช้ model bundle หากยังไม่ได้เทรน
+เทสต์กลุ่มนี้จะถูก skip โดยไม่ทำให้ชุดทดสอบล้มเหลว
 
 ## 15. ลำดับคำสั่งตั้งแต่เริ่มต้น
 
 ~~~powershell
 # 1. สร้าง environment
 python -m venv .venv
-..venvScriptsActivate.ps1
+.\.venv\Scripts\Activate.ps1
 
 # 2. ติดตั้ง dependencies
 python -m pip install -r requirements.txt
@@ -384,7 +474,7 @@ python src/check_data_quality.py
 python src/model_training.py
 
 # 6. รัน tests
-python -m pytest -q
+pytest
 
 # 7. เปิดเว็บ
 python -m streamlit run app/streamlit_app.py
