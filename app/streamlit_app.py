@@ -104,277 +104,355 @@ RISK_PRESENTATION = {
 }
 
 
+# Design rationale for the CSS below (kept as a real comment, not injected into
+# the page, because a numbered list inside an HTML comment gets parsed as
+# Markdown by st.markdown and breaks out of the raw <style> block):
+#
+# - Thai script stacks tone and vowel marks tightly above and below each
+#   consonant. Negative letter-spacing on Thai headings (the previous design
+#   used -0.03em to -0.08em) crowds those marks and makes the text genuinely
+#   harder to read, not just less elegant. Every Thai text class below uses
+#   normal letter-spacing; tracking is reserved for short, all-caps English
+#   labels only.
+# - "Inter" has no Thai glyphs, so Thai text was silently falling back to
+#   whatever the OS supplies, with no control over shaping quality. Noto Sans
+#   Thai is loaded explicitly and listed first for anything that renders
+#   Thai copy.
+# - Body and label text previously ranged from 0.62rem to 0.86rem (10-14px)
+#   in muted blue-grey on a dark navy background. Nothing below 0.8rem (13px)
+#   is used now, and secondary text uses a lighter, higher-contrast tone.
+# - Decorative radial-gradient glows, double gradient layers and the
+#   thick-ringed "score orb" added visual noise without adding information.
+#   They are replaced with flat surfaces and a single colour accent per risk
+#   level.
+# <style> must be the very first tag in this markdown string. Streamlit's
+# markdown parser treats a block starting with <style>/<script>/<pre> as raw
+# text up to the literal </style>, blank lines included. A block starting
+# with <link> instead (as this used to) is parsed under different HTML-block
+# rules where an interior blank line ends the block early, dumping the rest
+# of the CSS as visible text on the page. Font <link> tags are appended after
+# </style> instead, in their own blank-line-free block.
 st.markdown(
     """
     <style>
       :root {
-        --bg: #09131f;
-        --surface: #101f2f;
-        --surface-2: #13283b;
-        --line: rgba(176, 211, 224, .16);
-        --ink: #f1f7f8;
-        --muted: #91aab8;
-        --mint: #76e6c2;
-        --cyan: #61c7f5;
-        --amber: #f8c66b;
-        --rose: #ff8c9f;
+        --bg: #0d1420;
+        --surface: #161f2e;
+        --surface-2: #1d2839;
+        --border: #2e3b4f;
+        --text: #f5f8fb;
+        --text-secondary: #c9d3e0;
+        --text-muted: #96a7bc;
+        --accent: #3ecf8e;
+        --accent-strong: #2fae77;
+        --low-bg: #123527;
+        --low-border: #1f6b48;
+        --low-text: #7ee9b8;
+        --medium-bg: #3a2c10;
+        --medium-border: #8a6a1f;
+        --medium-text: #f5c451;
+        --high-bg: #3a1620;
+        --high-border: #8a2c3f;
+        --high-text: #ff93a6;
       }
 
-      .stApp {
-        background:
-          radial-gradient(circle at 85% -5%, rgba(49, 148, 179, .22), transparent 32rem),
-          radial-gradient(circle at 20% 0%, rgba(55, 190, 157, .14), transparent 29rem),
-          var(--bg);
-        color: var(--ink);
+      html, body, .stApp {
+        background: var(--bg) !important;
+        color: var(--text);
       }
+
+      /* Excludes Streamlit's Material icon spans: forcing a text font onto
+         them turns icon glyphs (e.g. an expander's chevron) into the raw
+         ligature text "keyboard_arrow_down" instead of an arrow. */
+      *:not([data-testid="stIconMaterial"]) {
+        font-family: "Noto Sans Thai", "Inter", ui-sans-serif, system-ui, -apple-system,
+          "Segoe UI", sans-serif !important;
+      }
+
+      body, p, li, .stMarkdown { line-height: 1.7; }
 
       header[data-testid="stHeader"] {
-        background: rgba(9, 19, 31, .92) !important;
-        border-bottom: 1px solid rgba(176, 211, 224, .08);
-        backdrop-filter: blur(14px);
+        background: var(--bg) !important;
+        border-bottom: 1px solid var(--border);
       }
-
       [data-testid="stToolbar"] { background: transparent !important; }
-      header[data-testid="stHeader"] button { color: #b9cdd4 !important; }
+      header[data-testid="stHeader"] button { color: var(--text-secondary) !important; }
 
-      .block-container {
-        max-width: 1250px;
-        padding: 2.1rem 2.7rem 3.5rem;
-      }
+      .block-container { max-width: 1180px; padding: 2rem 2.2rem 3.5rem; }
 
       [data-testid="stSidebar"] {
-        background: #0b1928;
-        border-right: 1px solid var(--line);
+        background: var(--surface);
+        border-right: 1px solid var(--border);
       }
+      [data-testid="stSidebar"] .block-container { padding: 1.3rem 1rem 2rem; }
 
-      [data-testid="stSidebar"] > div:first-child {
-        background:
-          radial-gradient(circle at 5% 0%, rgba(67, 203, 177, .17), transparent 22rem),
-          #0b1928;
-      }
-
-      [data-testid="stSidebar"] .block-container {
-        padding: 1.35rem 1rem 2rem;
-      }
-
-      h1, h2, h3, p, span, label, div { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      h1, h2, h3 { color: var(--ink) !important; letter-spacing: -.03em; }
-      h2 { font-size: 1.12rem !important; }
+      h1, h2, h3 { color: var(--text) !important; letter-spacing: normal; }
 
       .brand-lockup {
-        padding: .35rem .25rem 1.25rem;
-        border-bottom: 1px solid var(--line);
+        padding: .35rem .25rem 1.1rem;
+        border-bottom: 1px solid var(--border);
         margin-bottom: 1rem;
       }
-
       .brand-mark {
         align-items: center;
-        background: linear-gradient(135deg, var(--mint), var(--cyan));
+        background: var(--accent);
         border-radius: 10px;
-        color: #09202a;
+        color: #08201a;
         display: inline-flex;
         font-size: 1.25rem;
-        font-weight: 900;
+        font-weight: 800;
         height: 34px;
         justify-content: center;
         margin-right: .55rem;
         width: 34px;
       }
-
-      .brand-name { color: var(--ink); font-size: .95rem; font-weight: 800; letter-spacing: .16em; vertical-align: 7px; }
-      .brand-subtitle { color: var(--muted); font-size: .66rem; letter-spacing: .15em; margin-top: .6rem; text-transform: uppercase; }
+      .brand-name { color: var(--text); font-size: 1rem; font-weight: 800; letter-spacing: .1em; vertical-align: 7px; }
+      .brand-subtitle { color: var(--text-muted); font-size: .8rem; letter-spacing: .04em; margin-top: .5rem; }
 
       .sidebar-note {
-        background: rgba(118, 230, 194, .07);
-        border: 1px solid rgba(118, 230, 194, .16);
-        border-radius: 12px;
-        color: #bad1d8;
-        font-size: .76rem;
-        line-height: 1.55;
-        margin: .95rem 0 1.15rem;
-        padding: .8rem .85rem;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        border-radius: 10px;
+        color: var(--text-secondary);
+        font-size: .9rem;
+        line-height: 1.65;
+        margin: .9rem 0 1.1rem;
+        padding: .85rem .9rem;
       }
 
       [data-testid="stSidebar"] .stExpander {
-        background: rgba(255, 255, 255, .025);
-        border: 1px solid var(--line);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
         border-radius: 12px;
         margin: .55rem 0;
         overflow: hidden;
       }
-
       [data-testid="stSidebar"] [data-testid="stExpanderDetails"] { border: 0; }
-      [data-testid="stSidebar"] summary { color: #dbe9ec !important; font-size: .83rem; font-weight: 700; letter-spacing: .01em; }
-      [data-testid="stSidebar"] label { color: #b9cbd3 !important; font-size: .76rem !important; font-weight: 600 !important; }
-      [data-testid="stSidebar"] .stCaption { color: #7f9aa8 !important; font-size: .7rem !important; }
+      /* Streamlit renders the expander header as a plain <summary> with its
+         own light background (~#f8f9fb) regardless of app theme. Overriding
+         only the text colour left near-white text on that near-white
+         background, which is why section headers were invisible. */
+      [data-testid="stSidebar"] summary {
+        background: var(--surface-2) !important;
+        border-radius: 8px;
+        color: var(--text) !important;
+        font-size: .95rem;
+        font-weight: 700;
+        padding: .5rem .6rem !important;
+      }
+      [data-testid="stSidebar"] summary svg,
+      [data-testid="stSidebar"] summary [data-testid="stIconMaterial"] {
+        color: var(--text-muted) !important;
+      }
+      [data-testid="stSidebar"] label {
+        color: var(--text-secondary) !important;
+        font-size: .88rem !important;
+        font-weight: 600 !important;
+      }
+      [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: var(--text-muted) !important;
+        font-size: .82rem !important;
+        line-height: 1.6 !important;
+      }
 
       [data-testid="stSidebar"] [data-baseweb="select"] > div,
       [data-testid="stSidebar"] [data-testid="stNumberInput"] input {
-        background: rgba(255,255,255,.055) !important;
-        border-color: rgba(181, 218, 230, .16) !important;
-        color: #edf7f8 !important;
+        background: var(--surface) !important;
+        border-color: var(--border) !important;
+        color: var(--text) !important;
+        font-size: .92rem !important;
+      }
+      [data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stThumbValue"] {
+        color: var(--accent);
+        font-size: .88rem;
+        font-weight: 700;
       }
 
-      [data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stThumbValue"] { color: var(--mint); }
       [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button,
       .stButton > button {
-        background: linear-gradient(100deg, #78e7c3, #67c7ee) !important;
+        background: var(--accent) !important;
         border: 0 !important;
         border-radius: 10px !important;
-        box-shadow: 0 12px 26px rgba(73, 195, 176, .18);
-        color: #08202a !important;
-        font-size: .9rem !important;
-        font-weight: 800 !important;
-        min-height: 2.8rem;
+        color: #08201a !important;
+        font-size: .98rem !important;
+        font-weight: 700 !important;
+        min-height: 2.9rem;
       }
-
       [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button:hover,
-      .stButton > button:hover {
-        box-shadow: 0 16px 32px rgba(73, 195, 176, .28);
-        transform: translateY(-1px);
-      }
+      .stButton > button:hover { background: var(--accent-strong) !important; }
 
       .hero {
-        background:
-          linear-gradient(115deg, rgba(16, 40, 55, .96), rgba(13, 31, 47, .84)),
-          linear-gradient(145deg, rgba(110, 235, 198, .13), transparent);
-        border: 1px solid var(--line);
-        border-radius: 22px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-top: 3px solid var(--accent);
+        border-radius: 16px;
         margin-bottom: 1.4rem;
-        overflow: hidden;
-        padding: 2.2rem 2.25rem;
-        position: relative;
+        padding: 1.9rem 2rem;
       }
-
-      .hero:after {
-        background: radial-gradient(circle, rgba(114, 230, 194, .17), transparent 67%);
-        content: "";
-        height: 280px;
-        position: absolute;
-        right: -65px;
-        top: -140px;
-        width: 280px;
+      .eyebrow {
+        color: var(--accent);
+        font-size: .8rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
       }
-
-      .eyebrow { color: var(--mint); font-size: .71rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
-      .hero-title { color: var(--ink); font-size: clamp(2rem, 4vw, 3.05rem); font-weight: 790; letter-spacing: -.055em; line-height: 1.07; margin: .55rem 0 .72rem; max-width: 710px; position: relative; z-index: 1; }
-      .hero-copy { color: #aabec8; font-size: .98rem; line-height: 1.65; max-width: 660px; position: relative; z-index: 1; }
-      .hero-pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.35rem; position: relative; z-index: 1; }
-      .hero-pill { background: rgba(130, 230, 202, .08); border: 1px solid rgba(130, 230, 202, .17); border-radius: 100px; color: #cae7e1; font-size: .73rem; font-weight: 650; padding: .37rem .7rem; }
-      .hero-pill b { color: var(--mint); font-weight: 800; margin-right: .3rem; }
-
-      .section-kicker { color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .14em; margin: .15rem 0 .4rem; text-transform: uppercase; }
-      .section-title { color: var(--ink); font-size: 1.38rem; font-weight: 760; letter-spacing: -.03em; margin: 0 0 1rem; }
-
-      .empty-board, .model-board {
-        background: rgba(16, 37, 54, .74);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        padding: 1.15rem;
+      .hero-title {
+        color: var(--text);
+        font-size: clamp(1.7rem, 3.4vw, 2.35rem);
+        font-weight: 700;
+        letter-spacing: normal;
+        line-height: 1.35;
+        margin: .6rem 0 .8rem;
+        max-width: 44rem;
       }
-
-      .empty-icon {
-        align-items: center;
-        background: linear-gradient(135deg, rgba(118,230,194,.2), rgba(97,199,245,.15));
-        border: 1px solid rgba(129, 230, 205, .22);
-        border-radius: 13px;
-        color: var(--mint);
-        display: inline-flex;
-        font-size: 1.2rem;
-        height: 43px;
-        justify-content: center;
-        margin-bottom: .85rem;
-        width: 43px;
+      .hero-copy {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        line-height: 1.75;
+        max-width: 44rem;
       }
+      .hero-stats {
+        border-top: 1px solid var(--border);
+        color: var(--text-muted);
+        display: flex;
+        flex-wrap: wrap;
+        font-size: .88rem;
+        gap: .5rem 1.3rem;
+        margin-top: 1.2rem;
+        padding-top: 1.1rem;
+      }
+      .hero-stats b { color: var(--text); font-weight: 700; }
 
-      .empty-title { color: #edf7f8; font-size: 1.04rem; font-weight: 750; margin: 0 0 .4rem; }
-      .empty-copy { color: var(--muted); font-size: .85rem; line-height: 1.55; margin: 0; }
-      .micro-card {
-        background: rgba(255,255,255,.025);
-        border: 1px solid var(--line);
+      .section-kicker {
+        color: var(--text-muted);
+        font-size: .8rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        margin: .15rem 0 .35rem;
+        text-transform: uppercase;
+      }
+      .section-title { color: var(--text); font-size: 1.4rem; font-weight: 700; letter-spacing: normal; margin: 0 0 1rem; }
+
+      .board {
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 14px;
         height: 100%;
-        padding: 1rem;
+        padding: 1.15rem;
       }
-      .micro-label { color: #7893a1; font-size: .68rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
-      .micro-value { color: #e8f5f2; font-size: 1.15rem; font-weight: 780; margin-top: .42rem; }
-      .micro-copy { color: #91a9b5; font-size: .76rem; line-height: 1.45; margin-top: .35rem; }
+      .board-title { color: var(--text); font-size: 1.05rem; font-weight: 700; margin: 0 0 .5rem; }
+      .board-copy { color: var(--text-secondary); font-size: .92rem; line-height: 1.7; margin: 0; }
+      .board-label { color: var(--text-muted); font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+      .board-value { color: var(--text); font-size: 1.2rem; font-weight: 700; margin-top: .4rem; }
 
-      .result-shell {
-        background: linear-gradient(125deg, rgba(19, 44, 60, .95), rgba(14, 31, 47, .88));
-        border: 1px solid rgba(126, 213, 204, .22);
-        border-radius: 22px;
+      .result-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        border-top: 4px solid var(--border);
+        height: 100%;
         margin-bottom: 1rem;
-        overflow: hidden;
-        padding: 1.35rem;
+        padding: 1.3rem 1.35rem;
+      }
+      .result-card.low { border-top-color: var(--low-text); }
+      .result-card.medium { border-top-color: var(--medium-text); }
+      .result-card.high { border-top-color: var(--high-text); }
+
+      .card-label {
+        color: var(--text-muted);
+        font-size: .8rem;
+        font-weight: 700;
+        letter-spacing: .06em;
+        text-transform: uppercase;
       }
 
-      .score-orb {
+      .score-number { color: var(--text); font-size: 2.6rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.15; margin-top: .3rem; }
+      .score-caption { color: var(--text-muted); font-size: .85rem; margin-top: .3rem; }
+
+      .risk-badge {
+        border: 1px solid;
+        border-radius: 8px;
+        display: inline-flex;
         align-items: center;
-        background: #0a1926;
-        border: 9px solid #6ee3c0;
-        border-radius: 50%;
-        box-shadow: 0 0 0 8px rgba(110, 227, 192, .08), 0 18px 45px rgba(0,0,0,.22);
-        display: flex;
-        flex-direction: column;
-        height: 148px;
-        justify-content: center;
-        margin: .2rem auto .95rem;
-        text-align: center;
-        width: 148px;
+        gap: .4rem;
+        font-size: .82rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+        padding: .3rem .7rem;
       }
-      .score-orb.medium { border-color: var(--amber); box-shadow: 0 0 0 8px rgba(248,198,107,.08), 0 18px 45px rgba(0,0,0,.22); }
-      .score-orb.high { border-color: var(--rose); box-shadow: 0 0 0 8px rgba(255,140,159,.08), 0 18px 45px rgba(0,0,0,.22); }
-      .score-number { color: #f3faf8; font-size: 2.55rem; font-weight: 820; letter-spacing: -.08em; line-height: 1; }
-      .score-label { color: #87a4ae; font-size: .62rem; font-weight: 800; letter-spacing: .16em; margin-top: .36rem; text-transform: uppercase; }
+      .risk-badge.low { background: var(--low-bg); border-color: var(--low-border); color: var(--low-text); }
+      .risk-badge.medium { background: var(--medium-bg); border-color: var(--medium-border); color: var(--medium-text); }
+      .risk-badge.high { background: var(--high-bg); border-color: var(--high-border); color: var(--high-text); }
 
-      .risk-badge { align-items: center; border: 1px solid; border-radius: 100px; display: inline-flex; font-size: .7rem; font-weight: 800; gap: .35rem; letter-spacing: .1em; padding: .38rem .65rem; text-transform: uppercase; }
-      .risk-badge.low { background: rgba(118,230,194,.1); border-color: rgba(118,230,194,.26); color: var(--mint); }
-      .risk-badge.medium { background: rgba(248,198,107,.1); border-color: rgba(248,198,107,.28); color: var(--amber); }
-      .risk-badge.high { background: rgba(255,140,159,.1); border-color: rgba(255,140,159,.28); color: var(--rose); }
-      .risk-title { color: #eff8f8; font-size: 1.35rem; font-weight: 780; letter-spacing: -.035em; margin: .7rem 0 .25rem; }
-      .risk-copy { color: #9eb6c1; font-size: .86rem; line-height: 1.55; margin: 0; }
-      .probability-value { color: #f3faf8; font-size: 3.1rem; font-weight: 800; letter-spacing: -.08em; line-height: 1; margin: .55rem 0 .55rem; }
-      .probability-label { color: #8ca7b3; font-size: .68rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+      .risk-title { color: var(--text); font-size: 1.3rem; font-weight: 700; letter-spacing: normal; line-height: 1.4; margin: .7rem 0 .3rem; }
+      .risk-copy { color: var(--text-secondary); font-size: .92rem; line-height: 1.7; margin: 0; }
 
-      .risk-track { background: rgba(255,255,255,.09); border-radius: 100px; height: 9px; margin: .65rem 0 .5rem; overflow: hidden; }
-      .risk-fill { background: linear-gradient(90deg, #6ee3c0 0%, #f8c66b 59%, #ff8c9f 100%); border-radius: inherit; height: 100%; }
-      .risk-scale { color: #809ba8; display: flex; font-size: .67rem; justify-content: space-between; }
+      .probability-value { color: var(--text); font-size: 2.6rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.15; margin: .3rem 0 .7rem; }
+
+      .risk-track { background: var(--surface-2); border: 1px solid var(--border); border-radius: 100px; height: 10px; margin: .6rem 0 .5rem; overflow: hidden; }
+      .risk-fill { background: linear-gradient(90deg, var(--low-text), var(--medium-text), var(--high-text)); border-radius: inherit; height: 100%; }
+      .risk-scale { color: var(--text-muted); display: flex; font-size: .8rem; justify-content: space-between; margin-bottom: .8rem; }
+
+      .note { color: var(--text-muted); font-size: .84rem; line-height: 1.65; margin-top: .9rem; }
 
       [data-testid="stMetric"] {
-        background: rgba(255,255,255,.025);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: .85rem 1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: .9rem 1.1rem;
       }
-      [data-testid="stMetricLabel"] { color: #87a2ae !important; font-size: .7rem !important; font-weight: 800 !important; letter-spacing: .08em; text-transform: uppercase; }
-      [data-testid="stMetricValue"] { color: #edf8f6 !important; font-size: 1.42rem !important; font-weight: 760 !important; }
+      [data-testid="stMetricLabel"] {
+        color: var(--text-muted) !important;
+        font-size: .78rem !important;
+        font-weight: 700 !important;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }
+      [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 1.5rem !important; font-weight: 700 !important; }
 
       .disclaimer {
-        border-top: 1px solid var(--line);
-        color: #7f99a7;
-        font-size: .74rem;
-        line-height: 1.55;
+        border-top: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: .85rem;
+        line-height: 1.7;
         margin-top: 1.3rem;
-        padding-top: .95rem;
+        padding-top: 1rem;
       }
 
       [data-testid="stExpander"] {
-        background: rgba(16,37,54,.62);
-        border: 1px solid var(--line);
-        border-radius: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
       }
-      [data-testid="stExpander"] summary { color: #dcecf0 !important; font-size: .83rem; font-weight: 700; }
-      [data-testid="stAlert"] { border-radius: 12px; }
+      [data-testid="stExpander"] summary {
+        background: var(--surface) !important;
+        color: var(--text) !important;
+        font-size: .92rem;
+        font-weight: 700;
+        padding: .6rem .8rem !important;
+      }
+      [data-testid="stExpander"] summary svg,
+      [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {
+        color: var(--text-muted) !important;
+      }
+      [data-testid="stAlert"] { border-radius: 10px; font-size: .92rem; }
 
       #MainMenu, footer { visibility: hidden; }
       @media (max-width: 800px) {
         .block-container { padding: 1rem 1rem 2.5rem; }
-        .hero { padding: 1.5rem; }
-        .hero-title { font-size: 2.1rem; }
+        .hero { padding: 1.4rem; }
       }
     </style>
     """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800'
+    '&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">',
     unsafe_allow_html=True,
 )
 
@@ -431,19 +509,21 @@ def render_brand() -> None:
 def render_hero(bundle: dict) -> None:
     validation_auc = bundle.get("metrics", {}).get("roc_auc")
     auc_text = f"{validation_auc:.3f}" if validation_auc is not None else "—"
+    n_features = len(bundle.get("selected_feature_names", []))
     st.markdown(
         f"""
         <section class="hero">
           <div class="eyebrow">Calibrated decision support</div>
-          <div class="hero-title">ตัดสินใจสินเชื่อ<br>อย่างมั่นใจและมีบริบท</div>
+          <div class="hero-title">ตัดสินใจสินเชื่ออย่างมั่นใจและมีบริบท</div>
           <div class="hero-copy">
             ประเมินความเสี่ยงจากข้อมูลผู้สมัครด้วยโมเดลที่ผ่านการ calibration
             เพื่อให้ทีมสินเชื่อเห็นสัญญาณที่จำเป็นก่อนเข้าสู่กระบวนการพิจารณา
           </div>
-          <div class="hero-pills">
-            <span class="hero-pill"><b>◉</b> Calibrated probability</span>
-            <span class="hero-pill"><b>◈</b> ROC-AUC {auc_text}</span>
-            <span class="hero-pill"><b>✓</b> Human review ready</span>
+          <div class="hero-stats">
+            <span><b>Calibrated</b> probability</span>
+            <span><b>{auc_text}</b> ROC-AUC</span>
+            <span><b>{n_features}</b> features</span>
+            <span><b>✓</b> Human review ready</span>
           </div>
         </section>
         """,
@@ -458,12 +538,11 @@ def render_empty_state(bundle: dict) -> None:
     with left:
         st.markdown(
             """
-            <div class="empty-board">
-              <div class="empty-icon">↗</div>
-              <div class="empty-title">เริ่มจากกรอกข้อมูลผู้สมัคร</div>
-              <p class="empty-copy">
-                ใช้แถบด้านซ้ายเพื่อระบุข้อมูลพื้นฐาน ภาระสินเชื่อ และข้อมูลเครดิตภายนอก
-                จากนั้นกดปุ่มประเมินเพื่อสร้าง risk profile
+            <div class="board">
+              <div class="board-title">เริ่มจากกรอกข้อมูลผู้สมัคร</div>
+              <p class="board-copy">
+                ใช้แถบด้านซ้ายเพื่อระบุข้อมูลพื้นฐาน ภาระสินเชื่อ และคะแนนเครดิตภายนอก
+                จากนั้นกดปุ่มประเมินความเสี่ยงเพื่อสร้าง risk profile
               </p>
             </div>
             """,
@@ -472,10 +551,10 @@ def render_empty_state(bundle: dict) -> None:
     with middle:
         st.markdown(
             """
-            <div class="micro-card">
-              <div class="micro-label">Output</div>
-              <div class="micro-value">PD + Score</div>
-              <div class="micro-copy">Default probability พร้อมดัชนีความเสี่ยงแบบ odds-based</div>
+            <div class="board">
+              <div class="board-label">Output</div>
+              <div class="board-value">PD + Score</div>
+              <p class="board-copy">Default probability พร้อมดัชนีความเสี่ยงแบบ odds-based</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -484,10 +563,10 @@ def render_empty_state(bundle: dict) -> None:
         selected = len(bundle.get("selected_feature_names", []))
         st.markdown(
             f"""
-            <div class="micro-card">
-              <div class="micro-label">Model coverage</div>
-              <div class="micro-value">{selected} features</div>
-              <div class="micro-copy">ฟีเจอร์ที่ผ่านการคัดเลือกสำหรับการประเมิน</div>
+            <div class="board">
+              <div class="board-label">Model coverage</div>
+              <div class="board-value">{selected} features</div>
+              <p class="board-copy">ฟีเจอร์ที่ผ่านการคัดเลือกสำหรับการประเมิน</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -508,12 +587,10 @@ def render_result(assessment: dict, bundle: dict) -> None:
     with col_score:
         st.markdown(
             f"""
-            <div class="result-shell">
-              <div class="score-orb {risk["class_name"]}">
-                <div class="score-number">{score}</div>
-                <div class="score-label">Risk index</div>
-              </div>
-              <div class="probability-label" style="text-align:center">300–850 odds-based index</div>
+            <div class="result-card {risk["class_name"]}">
+              <div class="card-label">Risk index (300–850)</div>
+              <div class="score-number">{score}</div>
+              <div class="score-caption">ดัชนีแบบ odds-based ไม่ใช่คะแนนเครดิตบูโร</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -521,12 +598,12 @@ def render_result(assessment: dict, bundle: dict) -> None:
     with col_risk:
         st.markdown(
             f"""
-            <div class="result-shell">
-              <span class="risk-badge {risk["class_name"]}"><span>{risk["icon"]}</span>{risk["eyebrow"]}</span>
+            <div class="result-card {risk["class_name"]}">
+              <span class="risk-badge {risk["class_name"]}"><span>{risk["icon"]}</span>{risk["title"]}</span>
               <div class="risk-title">{risk["title"]}</div>
               <p class="risk-copy">{risk["description"]}</p>
-              <div class="disclaimer">เกณฑ์ตรวจสอบของโมเดลอยู่ที่ {threshold:.2%}
-              และผลลัพธ์ควรใช้ประกอบ human review เสมอ</div>
+              <p class="note">เกณฑ์ตรวจสอบของโมเดลอยู่ที่ {threshold:.2%}
+              ผลลัพธ์นี้ควรใช้ประกอบ human review เสมอ</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -534,13 +611,13 @@ def render_result(assessment: dict, bundle: dict) -> None:
     with col_probability:
         st.markdown(
             f"""
-            <div class="result-shell">
-              <div class="probability-label">Estimated default probability</div>
+            <div class="result-card {risk["class_name"]}">
+              <div class="card-label">Estimated default probability</div>
               <div class="probability-value">{probability:.2%}</div>
               <div class="risk-track"><div class="risk-fill" style="width:{meter_width:.1f}%"></div></div>
               <div class="risk-scale"><span>ต่ำ</span><span>เกณฑ์ {threshold:.1%}</span><span>สูง</span></div>
-              <div class="disclaimer">Probability นี้ผ่าน calibration ด้วยข้อมูล validation
-              เพื่อให้ตีความความเสี่ยงได้ดีขึ้น</div>
+              <p class="note">Probability นี้ผ่าน calibration ด้วยข้อมูล validation
+              เพื่อให้ตีความความเสี่ยงได้ดีขึ้น</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -559,6 +636,7 @@ def render_result(assessment: dict, bundle: dict) -> None:
             st.write(
                 {
                     "bundle_version": bundle.get("bundle_version"),
+                    "feature_scope": bundle.get("feature_scope"),
                     "selected_features": len(bundle.get("selected_feature_names", [])),
                     "trained_at": bundle.get("created_at"),
                 }
@@ -566,9 +644,10 @@ def render_result(assessment: dict, bundle: dict) -> None:
         with note_col:
             st.caption("Deployment note")
             st.write(
-                "ฟีเจอร์เครดิตบูโรหรือประวัติการชำระที่ไม่ได้รับผ่านแบบฟอร์ม "
-                "จะใช้ค่ากลางจาก training split ใน demo นี้ "
-                "ระบบ production ควรเชื่อมต่อข้อมูลจริงที่ได้รับอนุญาต"
+                "โมเดลนี้เรียนรู้เฉพาะจากช่องข้อมูลที่แบบฟอร์มนี้เก็บได้จริง "
+                "ช่องใดที่เจ้าหน้าที่ไม่ได้กรอกหรือติ๊กไม่พบในระบบ จะถูกส่งเป็นค่าว่าง "
+                "ไม่ใช่ค่ากลางของข้อมูลฝึก เพื่อให้ตรงกับสิ่งที่โมเดลเรียนรู้มา "
+                "ระบบ production ยังควรบันทึก model และ data version ของทุกคำทำนาย"
             )
 
 
