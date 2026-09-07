@@ -73,3 +73,12 @@ logs/
 # Environment
 .env
 .env.local
+
+# Agent / tooling scratch (not part of the project)
+.codex_tmp/
+.claude/
+output/
+
+# Generated model reports (derived from the bundle stem)
+models/*_metrics.json
+models/*_feature_importance.csv

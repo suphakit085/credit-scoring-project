@@ -1,125 +1,113 @@
-# 💳 Credit Scoring Project (ระบบประเมินความเสี่ยงสินเชื่อ)
+# Credit Scoring Project
 
-โปรเจกต์นี้จัดทำขึ้นเพื่อพัฒนาโมเดล Machine Learning สำหรับประเมินความเสี่ยงในการผิดนัดชำระหนี้ (Credit Risk Scoring) โดยใช้ชุดข้อมูลจาก **Home Credit Default Risk** เป้าหมายคือการช่วยให้สถาบันการเงินสามารถตัดสินใจอนุมัติสินเชื่อได้อย่างแม่นยำและรวดเร็วผ่าน Web Application ที่ใช้งานง่าย
+ระบบประเมินความน่าจะเป็นในการผิดนัดชำระหนี้จากชุดข้อมูล Home Credit Default
+Risk พร้อม data pipeline, leakage-safe model training, probability calibration
+และหน้าเว็บ Streamlit
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-App-red)
-![LightGBM](https://img.shields.io/badge/Model-LightGBM-green)
+คำอธิบายขั้นตอนทั้งหมดแบบละเอียด: [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md)
 
----
+> ระบบนี้เป็นตัวอย่างด้าน Machine Learning เท่านั้น ไม่ควรใช้อนุมัติหรือปฏิเสธ
+> สินเชื่อจริงโดยไม่มีการตรวจสอบ fairness, compliance, data governance
+> และ human review
 
-## 🚀 ฟีเจอร์หลัก (Key Features)
+## สถาปัตยกรรม
 
-- **Comprehensive Data Pipeline**: 
-  - การทำความสะอาดข้อมูล (Data Cleaning) และจัดการ Missing Values ตามหลักสถิติ
-  - การรวมข้อมูลจากหลายตาราง (Bureau, Previous Applications, Installments)
-- **Advanced Feature Engineering**: 
-  - สร้างตัวแปรใหม่กว่า 200+ ตัว (Domain Knowledge Features)
-  - การคำนวณอัตราส่วนทางการเงิน (Financial Ratios)
-  - จัดการข้อมูล Categorical ด้วย One-Hot Encoding
-- **Robust Modeling**: 
-  - ใช้โมเดล **LightGBM** ซึ่งมีประสิทธิภาพสูงกับข้อมูลตาราง (Tabular Data)
-  - การปรับ Hyperparameters เพื่อความแม่นยำสูงสุด
-  - การจัดการ Class Imbalance ด้วย SMOTE (Optional)
-- **Interactive Web App**:
-  - แอปพลิเคชัน Streamlit ภาษาไทยสมบูรณ์แบบ
-  - ระบบ **Smart Defaults** ใช้ค่ามัธยฐาน (Median) สำหรับข้อมูลที่ผู้ใช้ไม่ได้กรอก ป้องกันการทำนายผิดพลาด
-  - แสดงผลคะแนนเครดิต (Credit Score) และระดับความเสี่ยง (Risk Level) แบบ Real-time
+~~~text
+data/raw/*.csv
+    |
+    v
+src/data_preprocessing.py
+    |  clean sentinel + aggregate 5 historical tables
+    v
+data/processed/train_cleaned.csv
+    |
+    v
+src/model_training.py
+    |  split -> defaults/features/preprocess/select (fit on train only)
+    |  -> LightGBM -> isotonic calibration -> untouched validation
+    v
+models/credit_scoring_bundle.joblib
+    |
+    v
+src/inference.py -> app/streamlit_app.py
+~~~
 
----
+Model bundle เก็บ input schema, training-set defaults, imputer, encoder, scaler,
+feature selector, LightGBM, probability calibrator และ decision threshold ไว้
+ด้วยกัน จึงไม่มีการสร้าง preprocessing แยกจากโมเดลในหน้าแอป
 
-## 📂 โครงสร้างโปรเจกต์ (Project Structure)
+## ติดตั้ง
 
-```text
-credit-scoring-project/
-├── app/
-│   └── streamlit_app.py    # ซอร์สโค้ดหลักของ Web Application
-├── data/
-│   ├── raw/                # ข้อมูลดิบ (จาก Kaggle)
-│   ├── processed/          # ข้อมูลที่ผ่านการทำความสะอาดแล้ว
-│   └── features/           # ข้อมูลที่ทำ Feature Engineering แล้ว
-├── models/
-│   ├── best_model_lgbm.pkl # โมเดล LightGBM ที่เทรนเสร็จแล้ว
-│   ├── scaler.joblib       # ตัวแปลงข้อมูล (RobustScaler)
-│   ├── imputer.joblib      # ตัวเติมข้อมูล (SimpleImputer)
-│   └── scorecard/          # (Optional) ตารางคะแนนสำหรับ Credit Scorecard
-├── notebooks/
-│   ├── 01_eda_data_understanding.ipynb  # สำรวจข้อมูลเบื้องต้น (EDA)
-│   ├── 02_data_cleaning_joining.ipynb   # รวมตารางและทำความสะอาด
-│   ├── 03_feature_engineering.ipynb     # สร้างตัวแปรใหม่และเตรียมข้อมูล
-│   ├── 04_modeling_training.ipynb       # เทรนและคัดเลือกโมเดล
-│   └── 05_evaluation_analysis.ipynb     # วัดผลและวิเคราะห์ (SHAP, AUC)
-├── src/
-│   ├── recreate_scaling.py # สคริปต์สร้าง Scaler/Imputer ใหม่
-│   ├── compute_medians.py  # สคริปต์คำนวณค่ากลางสำหรับแอป
-│   └── inspect_model.py    # สคริปต์ตรวจสอบ Feature Importance
-├── requirements.txt        # รายชื่อ Library ที่ต้องใช้
-└── README.md               # เอกสารประกอบโปรเจกต์
-```
+ต้องใช้ Python 3.10 ขึ้นไป
 
----
+~~~powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+~~~
 
-## 🛠 การติดตั้ง (Installation)
+## การใช้งาน
 
-1. **Clone Repository**
-   ```bash
-   git clone https://github.com/yourusername/credit-scoring-project.git
-   cd credit-scoring-project
-   ```
+เตรียมข้อมูลจากไฟล์ Kaggle ใน data/raw:
 
-2. **สร้าง Environment และติดตั้ง Library**
-   แนะนำให้ใช้ Virtual Environment:
-   ```bash
-   python -m venv venv
-   # Windows
-   .\venv\Scripts\activate
-   # macOS/Linux
-   source venv/bin/activate
-   ```
-   
-   จากนั้นติดตั้ง dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+~~~powershell
+python src/data_preprocessing.py --reuse-aggregates
+python src/check_data_quality.py
+~~~
 
-3. **เตรียม Artifacts (ถ้าจำเป็น)**
-   หากต้องการสร้างไฟล์ Scaler, Imputer หรือ Medians ใหม่:
-   ```bash
-   python src/recreate_scaling.py
-   python src/compute_medians.py
-   ```
+ฝึกโมเดลใหม่:
 
----
+~~~powershell
+python src/model_training.py
+~~~
 
-## 🖥 การใช้งาน (Usage)
+ระหว่างพัฒนา สามารถ smoke test ด้วยข้อมูลบางส่วนได้:
 
-### 1. รัน Web Application
-แอปพลิเคชันถูกออกแบบมาให้ใช้งานง่ายด้วยคำสั่งเดียว:
-```bash
+~~~powershell
+python src/model_training.py --sample-rows 20000 --output models/dev_bundle.joblib
+~~~
+
+เปิดเว็บ:
+
+~~~powershell
 streamlit run app/streamlit_app.py
-```
-> ระบบจะเปิดหน้าเว็บขึ้นมาใน Browser โดยอัตโนมัติ (ปกติที่ http://localhost:8501)
+~~~
 
-### 2. การเทรนโมเดลใหม่ (Jupyter Notebooks)
-หากต้องการศึกษาขั้นตอนการทำงานหรือเทรนโมเดลใหม่ ให้รัน Notebook ตามลำดับเลข:
-1. `01_eda_data_understanding.ipynb`
-2. `02_data_cleaning_joining.ipynb`
-3. `03_feature_engineering.ipynb`
-4. `04_modeling_training.ipynb`
+ตรวจสอบโมเดลและรัน tests:
 
----
+~~~powershell
+python src/inspect_model.py
+python -m pytest -q
+~~~
 
-## 📊 ผลลัพธ์และประสิทธิภาพ (Performance)
+## การประเมินที่ถูกต้อง
 
-- **Model**: LightGBM Classifier
-- **Preprocessing**: RobustScaler (ทนทานต่อ Outliers), Median Imputation
-- **Evaluation Metric**: ROC-AUC
-- **Explainability**: ใช้ SHAP Values ในการตรวจสอบปัจจัยที่มีผลต่อการอนุมัติสินเชื่อ
+- แบ่ง train, calibration และ validation ก่อน imputation, encoding, scaling
+  และ feature selection
+- ไม่ใช้ SMOTE ใน validation และเก็บสัดส่วน class ตามข้อมูลจริง
+- ใช้ calibration split สำหรับ Isotonic Regression และเลือก threshold
+- รายงาน ROC-AUC, Brier score, precision, recall และ F1 บน validation
+  ที่ไม่ถูกใช้ฝึกหรือ calibrate
+- ผลล่าสุดถูกบันทึกใน models/model_metrics.json
 
----
+Notebooks เดิมเก็บไว้เป็นบันทึกการทดลอง แต่ pipeline ที่รองรับการใช้งานจริงคือ
+โค้ดใน src/ โดย notebook results เดิมที่ทำ SMOTE ก่อน split ไม่ควรใช้เป็น
+ตัวเลขอ้างอิง
 
-## 👥 ผู้จัดทำ
-**Suphakit** - *Developer & Data Scientist*
+## โครงสร้างสำคัญ
 
----
-*Created with ❤️ using Python & Streamlit*
+~~~text
+app/streamlit_app.py       หน้าเว็บและแบบฟอร์ม
+src/data_preprocessing.py  รวมข้อมูลดิบ
+src/feature_generation.py  สูตรฟีเจอร์ที่ train/inference ใช้ร่วมกัน
+src/model_training.py      ฝึก calibrate ประเมิน และบันทึก bundle
+src/inference.py           API ทำนายที่หน้าเว็บเรียกใช้
+src/check_data_quality.py  ตรวจ schema, ID, target, sentinel และ infinity
+tests/                     unit tests
+notebooks/                 ประวัติการสำรวจและทดลองเดิม
+~~~
+
+ฟีเจอร์เครดิตบูโรและประวัติการชำระที่หน้าเว็บไม่ได้รับจากผู้ใช้จะใช้ค่ากลาง
+ของ training split ใน demo นี้ ระบบ production ต้องเชื่อมต่อแหล่งข้อมูลจริง
+ที่ได้รับอนุญาตและบันทึก model/data version สำหรับทุกคำทำนาย

@@ -1,46 +1,31 @@
+"""Print model metadata and the most important selected features."""
 
-import joblib
+from __future__ import annotations
+
 import pandas as pd
-import numpy as np
 
-def main():
-    print("Loading model...")
-    try:
-        model = joblib.load('models/best_model_lgbm.pkl')
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        return
+try:
+    from .inference import DEFAULT_BUNDLE_PATH, load_bundle
+except ImportError:
+    from inference import DEFAULT_BUNDLE_PATH, load_bundle
 
-    print("Loading feature names...")
-    try:
-        feature_names_df = pd.read_csv('data/features/feature_names.csv')
-        feature_names = feature_names_df['feature'].tolist()
-    except Exception as e:
-        print(f"Error loading feature names: {e}")
-        return
 
-    print(f"Model type: {type(model)}")
-    
-    # Check if model has feature_importances_
-    if hasattr(model, 'feature_importances_'):
-        importances = model.feature_importances_
-        
-        # Create DataFrame
-        fi_df = pd.DataFrame({
-            'feature': feature_names,
-            'importance': importances
-        })
-        
-        fi_df = fi_df.sort_values(by='importance', ascending=False)
-        
-        print("\nTop 20 Features by Importance:")
-        print(fi_df.head(20))
-        
-        # Also print bottom 10 just in case
-        # print("\nBottom 10 Features:")
-        # print(fi_df.tail(10))
-    else:
-        print("Model does not have feature_importances_ attribute.")
+def main() -> None:
+    bundle = load_bundle(DEFAULT_BUNDLE_PATH)
+    model = bundle["model"]
+    importance = pd.DataFrame(
+        {
+            "feature": bundle["selected_feature_names"],
+            "importance": model.feature_importances_,
+        }
+    ).sort_values("importance", ascending=False)
+    print(f"Bundle version: {bundle['bundle_version']}")
+    print(f"Created at: {bundle['created_at']}")
+    print(f"Decision threshold: {bundle['decision_threshold']:.6f}")
+    print(f"Validation metrics: {bundle.get('metrics', {})}")
+    print("\nTop 20 features:")
+    print(importance.head(20).to_string(index=False))
+
 
 if __name__ == "__main__":
     main()

@@ -1,48 +1,55 @@
-import pandas as pd
+"""Fail-fast quality checks for the processed training dataset."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 
-def check_data():
-    print("Loading train_processed.csv...")
-    try:
-        df = pd.read_csv('data/processed/train_processed.csv')
-    except FileNotFoundError:
-        print("Error: data/processed/train_processed.csv not found.")
-        return
 
-    print(f"Data Shape: {df.shape}")
-    
-    # 1. Check DAYS_EMPLOYED anomaly
-    if 'DAYS_EMPLOYED' in df.columns:
-        max_days = df['DAYS_EMPLOYED'].max()
-        print(f"\n1. DAYS_EMPLOYED Check:")
-        print(f"   Max Value: {max_days}")
-        if max_days > 365000:
-            print("   [FAIL] Anomaly 365243 still present!")
-        elif np.isnan(max_days):
-             print("   [INFO] DAYS_EMPLOYED contains NaNs (Expected for retirees if replaced with NaN)")
-        else:
-            print("   [PASS] Anomaly 365243 seems removed (Max value reasonable or NaN).")
-    
-    # 2. Check Income Outliers
-    if 'AMT_INCOME_TOTAL' in df.columns:
-        max_inc = df['AMT_INCOME_TOTAL'].max()
-        print(f"\n2. Income Check:")
-        print(f"   Max Income: {max_inc:,.2f}")
-        if max_inc > 10000000:
-            print("   [WARN] Extremely high income detected. Consider capping.")
-            
-    # 3. Missing Values
-    print(f"\n3. Missing Value Summary:")
-    missing = df.isnull().mean()
-    high_missing = missing[missing > 0.5]
-    print(f"   Columns with > 50% missing: {len(high_missing)}")
-    if len(high_missing) > 0:
-        print(f"   Examples: {high_missing.index.tolist()[:5]}")
-        
-    # 4. Target Imbalance
-    if 'TARGET' in df.columns:
-        print(f"\n4. Target Distribution:")
-        print(df['TARGET'].value_counts(normalize=True))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_data(path: Path, sample_rows: int | None = None) -> list[str]:
+    df = pd.read_csv(path, nrows=sample_rows, low_memory=False)
+    errors: list[str] = []
+    required = {"SK_ID_CURR", "TARGET", "DAYS_EMPLOYED"}
+    missing = required.difference(df.columns)
+    if missing:
+        errors.append(f"Missing required columns: {sorted(missing)}")
+        return errors
+    if df["SK_ID_CURR"].duplicated().any():
+        errors.append("SK_ID_CURR is not unique")
+    if not set(df["TARGET"].dropna().unique()).issubset({0, 1}):
+        errors.append("TARGET contains values other than 0 and 1")
+    if df["DAYS_EMPLOYED"].eq(365243).any():
+        errors.append("DAYS_EMPLOYED sentinel 365243 is still present")
+    numeric = df.select_dtypes(include=[np.number])
+    if np.isinf(numeric.to_numpy()).any():
+        errors.append("Numeric data contains infinity")
+
+    print(f"Shape: {df.shape}")
+    print(f"Positive rate: {df['TARGET'].mean():.4%}")
+    print(f"Columns over 50% missing: {(df.isna().mean() > 0.5).sum()}")
+    print("Quality check: PASS" if not errors else "Quality check: FAIL")
+    for error in errors:
+        print(f"- {error}")
+    return errors
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data",
+        type=Path,
+        default=PROJECT_ROOT / "data" / "processed" / "train_cleaned.csv",
+    )
+    parser.add_argument("--sample-rows", type=int, default=None)
+    args = parser.parse_args()
+    raise SystemExit(1 if check_data(args.data, args.sample_rows) else 0)
+
 
 if __name__ == "__main__":
-    check_data()
+    main()
