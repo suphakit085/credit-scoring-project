@@ -237,26 +237,47 @@ def verify_served_coverage(selected_names: list[str], served: list[str]) -> None
         )
 
 
-def calibrated_probability_bounds(calibrator: IsotonicRegression) -> tuple[float, float]:
-    """Bounds that keep isotonic's degenerate 0.0 and 1.0 out of served output.
+MIN_CALIBRATION_SUPPORT = 200
 
-    IsotonicRegression emits exactly 0 and exactly 1 wherever a calibration bin
-    contained no defaults or only defaults. On this dataset 101 validation
-    applicants were scored at a 0.000000% chance of default and one at 100%,
-    which no sample size justifies, and which pinned them to the ends of the
-    index.
 
-    The bounds sit half way between zero and the lowest level the calibrator
-    can actually resolve (and symmetrically at the top). Staying strictly below
-    that level preserves the ordering, so ranking metrics are unaffected, while
-    refusing to state certainty.
+def calibrated_probability_bounds(
+    calibrated: np.ndarray, y_true, min_support: int = MIN_CALIBRATION_SUPPORT
+) -> tuple[float, float]:
+    """The most extreme probabilities the calibration data actually supports.
+
+    Isotonic regression's outermost bins rest on very few rows: here the 0% bin
+    held 86 calibration rows and the 100% bin held 4. Serving those values
+    states certainty that no sample of that size can justify.
+
+    Picking a bound from the shape of the curve is not enough either. An
+    earlier version used half the lowest non-zero level, giving a 0.27% floor
+    and a 99.84% ceiling; the ceiling in particular was far beyond the
+    evidence, since the 370 riskiest calibration rows defaulted at 49%, not 99%.
+
+    So pool whole levels inward from each end until `min_support` rows are
+    covered, and take the Jeffreys posterior mean of the pooled region. That
+    ties the handful of applicants in the unsupported tails to the nearest
+    value the data can defend, and nothing is served beyond it.
     """
-    grid = calibrator.predict(np.linspace(0.0, 1.0, 20001))
-    positive = grid[grid > 0.0]
-    below_one = grid[grid < 1.0]
-    low = float(positive.min()) / 2.0 if positive.size else 1e-6
-    high = 1.0 - (1.0 - float(below_one.max())) / 2.0 if below_one.size else 1.0 - 1e-6
-    return low, high
+    frame = pd.DataFrame({"level": np.asarray(calibrated), "y": np.asarray(y_true)})
+    grouped = frame.groupby("level")["y"].agg(["size", "sum"]).sort_index()
+    counts = grouped["size"].to_numpy()
+    defaults = grouped["sum"].to_numpy()
+
+    def pooled(sizes: np.ndarray, hits: np.ndarray) -> float:
+        total = covered = 0
+        for size, hit in zip(sizes, hits):
+            total += int(size)
+            covered += int(hit)
+            if total >= min_support:
+                break
+        return (covered + 0.5) / (total + 1)
+
+    low = pooled(counts, defaults)
+    high = pooled(counts[::-1], defaults[::-1])
+    if low >= high:  # degenerate calibration set; fall back to a usable span
+        low, high = min(low, high), max(low, high)
+    return float(low), float(high)
 
 
 def make_score_scale(base_rate: float) -> dict[str, float]:
@@ -385,7 +406,8 @@ def train_model(
 
     # Applied here as well as at inference so the reported metrics describe the
     # probabilities the app actually serves.
-    low, high = calibrated_probability_bounds(calibrator)
+    calibration_probs = calibrator.predict(model.predict_proba(calibration_selected)[:, 1])
+    low, high = calibrated_probability_bounds(calibration_probs, calibration_y)
 
     threshold_probs = np.clip(
         calibrator.predict(model.predict_proba(threshold_selected)[:, 1]), low, high

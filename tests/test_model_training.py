@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.isotonic import IsotonicRegression
-
 from src.model_training import (
     SERVED_COLUMNS,
     calibrated_probability_bounds,
@@ -73,33 +71,69 @@ def test_optimal_f1_threshold_prefers_a_separating_cut():
     assert 0.2 < optimal_f1_threshold(y, probabilities) <= 0.8
 
 
-def fitted_degenerate_calibrator():
-    """Isotonic fitted on data whose end bins are all-clean and all-default."""
-    raw = np.linspace(0.0, 1.0, 40)
-    y = (raw > 0.5).astype(int)
-    return IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw, y)
+def degenerate_calibration(n_tail: int = 5, n_body: int = 400):
+    """Calibrated output whose end levels are all-clean and all-default.
+
+    The tails are deliberately tiny, mirroring the real calibrator where the
+    0% level rested on 86 rows and the 100% level on 4.
+    """
+    levels = np.concatenate([
+        np.zeros(n_tail),
+        np.full(n_body, 0.20),
+        np.full(n_body, 0.60),
+        np.ones(n_tail),
+    ])
+    y = np.concatenate([
+        np.zeros(n_tail),
+        (np.arange(n_body) < n_body * 0.20).astype(int),
+        (np.arange(n_body) < n_body * 0.60).astype(int),
+        np.ones(n_tail),
+    ])
+    return levels, y
 
 
 def test_probability_bounds_exclude_certainty():
-    calibrator = fitted_degenerate_calibrator()
-    grid = calibrator.predict(np.linspace(0, 1, 1001))
-    assert grid.min() == 0.0 and grid.max() == 1.0, "expected a degenerate calibrator"
+    levels, y = degenerate_calibration()
+    assert levels.min() == 0.0 and levels.max() == 1.0, "expected degenerate tails"
 
-    low, high = calibrated_probability_bounds(calibrator)
+    low, high = calibrated_probability_bounds(levels, y)
     assert 0.0 < low < high < 1.0
 
 
-def test_probability_bounds_stay_below_the_lowest_resolvable_level():
-    """Clamping must not merge the outermost bin into its neighbour.
+def test_probability_bounds_ignore_a_tail_too_small_to_support_itself():
+    """A 5-row tail must not set the bound; the pooled level should.
 
-    Sitting strictly below the lowest non-zero level keeps applicants in the
-    zero bin ranked ahead of the next bin, so ranking metrics are unchanged.
+    The all-clean tail has 5 rows, so the bound has to pool into the 20% level
+    beside it rather than trusting five observations.
     """
-    calibrator = fitted_degenerate_calibrator()
-    grid = calibrator.predict(np.linspace(0, 1, 20001))
-    low, high = calibrated_probability_bounds(calibrator)
-    assert low < grid[grid > 0].min()
-    assert high > grid[grid < 1].max()
+    levels, y = degenerate_calibration(n_tail=5, n_body=400)
+    low, high = calibrated_probability_bounds(levels, y, min_support=200)
+    assert low > 0.10, "floor should be pulled up toward the 20% level it pooled with"
+    assert high < 0.90, "ceiling should be pulled down toward the 60% level"
+
+
+def test_probability_bounds_respect_min_support():
+    """A larger support requirement pools in further, giving tighter bounds.
+
+    Pooling works level by level, so this needs a small level between the tail
+    and the body for the two support settings to stop at different places.
+    """
+    levels = np.concatenate([
+        np.zeros(5), np.full(50, 0.05), np.full(400, 0.30),
+        np.full(400, 0.70), np.full(50, 0.95), np.ones(5),
+    ])
+    y = np.concatenate([
+        np.zeros(5),
+        (np.arange(50) < 50 * 0.05).astype(int),
+        (np.arange(400) < 400 * 0.30).astype(int),
+        (np.arange(400) < 400 * 0.70).astype(int),
+        (np.arange(50) < 50 * 0.95).astype(int),
+        np.ones(5),
+    ])
+    loose_low, loose_high = calibrated_probability_bounds(levels, y, min_support=10)
+    tight_low, tight_high = calibrated_probability_bounds(levels, y, min_support=300)
+    assert tight_low > loose_low
+    assert tight_high < loose_high
 
 
 def test_score_scale_is_anchored_on_the_training_base_rate():

@@ -158,14 +158,38 @@ given model, and both were chosen from measurements rather than convention:
 
 Do not read these scores as FICO scores or compare them across portfolios.
 
-`probability_bounds` clamps served probabilities away from 0 and 1. Isotonic
-calibration emits exactly 0 and exactly 1 for its outermost bins: before this, 101
-validation applicants were served a 0.000000% chance of default and one a 100% chance.
-The bounds sit half way between the degenerate value and the lowest level the
-calibrator can resolve, which preserves ordering — ROC-AUC is unchanged to 10 decimal
-places — while refusing to claim certainty. Training applies the same clamp before
-selecting the threshold and computing metrics, so reported numbers describe what the
-app serves.
+`probability_bounds` clamps served probabilities to what the calibration data can
+support. Isotonic emits exactly 0 and exactly 1 for its outermost bins, and those bins
+are tiny: the 0% level rested on 86 calibration rows, the 100% level on 4. Bounds are
+found by pooling whole levels inward from each end until `MIN_CALIBRATION_SUPPORT`
+(200) rows are covered, then taking the Jeffreys posterior mean of the pooled region,
+currently **0.556% to 49.2%**.
+
+Do not set these bounds from the shape of the calibration curve instead. An earlier
+version used half the lowest non-zero level, giving a 99.84% ceiling, while the 370
+riskiest calibration rows actually defaulted at 49%. Discrimination cost of the honest
+bounds is negligible (ROC-AUC 0.7664901 to 0.7664883) and the index no longer hits the
+300 or 850 rails at all: the served range is 427 to 799, every value of it meaningful.
+
+Training applies the same clamp before selecting the threshold and computing metrics,
+so reported numbers describe what the app serves.
+
+### Report these numbers with their uncertainty
+
+Everything comes from one validation split of 30,752 rows. Bootstrap 95% intervals:
+ROC-AUC 0.766 [0.757, 0.776], average precision 0.242 [0.227, 0.258]. **Quote ROC-AUC
+to two decimals**; writing 0.7665 is false precision against an interval 0.019 wide.
+
+The decision threshold is less stable than it looks: 0.1665 with a bootstrap interval
+of [0.1593, 0.1845]. F1 is flat across that range because it is the optimised
+quantity, but the flagged rate swings from 10.1% to 14.3% and recall from 0.348 to
+0.433. Choose an operating point from the cost of a false positive against a false
+negative, not from maximum F1.
+
+Comparisons between models need a **paired** bootstrap on identical rows, not
+overlapping marginal intervals: the marginal interval on a single AUC is ±0.009, but
+the paired interval on the difference between two models scored on the same rows is
+about ±0.003, because the models are highly correlated.
 
 Risk bands (low/medium/high) come from the bundle's `risk_thresholds` and are driven by
 probability, not by the score.
