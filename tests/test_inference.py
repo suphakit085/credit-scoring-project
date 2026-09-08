@@ -56,6 +56,23 @@ def test_probability_to_score_is_monotonic_and_bounded():
     assert all(300 <= score <= 850 for score in scores)
 
 
+def test_score_scale_comes_from_the_bundle():
+    """The scale is per-model, so a bundle must override the legacy default."""
+    bundle = {"score_scale": {"anchor_odds": 11.39, "anchor_points": 600.0, "pdo": 50.0}}
+    # At the anchor odds the score is exactly the anchor points.
+    at_anchor = 1.0 / (1.0 + 11.39)
+    assert probability_to_score(at_anchor, bundle) == 600
+    # One doubling of the odds is worth exactly one PDO.
+    doubled = 1.0 / (1.0 + 22.78)
+    assert probability_to_score(doubled, bundle) == 650
+
+
+def test_score_scale_falls_back_for_bundles_without_one():
+    legacy_anchor = 1.0 / (1.0 + 50.0)
+    assert probability_to_score(legacy_anchor) == 600
+    assert probability_to_score(legacy_anchor, {}) == 600
+
+
 def test_risk_level_uses_bundle_thresholds():
     bundle = {"decision_threshold": 0.2, "risk_thresholds": {"low": 0.1, "high": 0.2}}
     assert risk_level(0.05, bundle) == "low"

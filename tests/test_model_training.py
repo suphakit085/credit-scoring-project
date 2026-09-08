@@ -2,10 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from sklearn.isotonic import IsotonicRegression
+
 from src.model_training import (
     SERVED_COLUMNS,
+    calibrated_probability_bounds,
     evaluate,
     is_served_feature,
+    make_score_scale,
     optimal_f1_threshold,
     scope_columns,
     served_feature_names,
@@ -67,6 +71,42 @@ def test_optimal_f1_threshold_prefers_a_separating_cut():
     y = pd.Series([0, 0, 1, 1])
     probabilities = np.array([0.1, 0.2, 0.8, 0.9])
     assert 0.2 < optimal_f1_threshold(y, probabilities) <= 0.8
+
+
+def fitted_degenerate_calibrator():
+    """Isotonic fitted on data whose end bins are all-clean and all-default."""
+    raw = np.linspace(0.0, 1.0, 40)
+    y = (raw > 0.5).astype(int)
+    return IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw, y)
+
+
+def test_probability_bounds_exclude_certainty():
+    calibrator = fitted_degenerate_calibrator()
+    grid = calibrator.predict(np.linspace(0, 1, 1001))
+    assert grid.min() == 0.0 and grid.max() == 1.0, "expected a degenerate calibrator"
+
+    low, high = calibrated_probability_bounds(calibrator)
+    assert 0.0 < low < high < 1.0
+
+
+def test_probability_bounds_stay_below_the_lowest_resolvable_level():
+    """Clamping must not merge the outermost bin into its neighbour.
+
+    Sitting strictly below the lowest non-zero level keeps applicants in the
+    zero bin ranked ahead of the next bin, so ranking metrics are unchanged.
+    """
+    calibrator = fitted_degenerate_calibrator()
+    grid = calibrator.predict(np.linspace(0, 1, 20001))
+    low, high = calibrated_probability_bounds(calibrator)
+    assert low < grid[grid > 0].min()
+    assert high > grid[grid < 1].max()
+
+
+def test_score_scale_is_anchored_on_the_training_base_rate():
+    scale = make_score_scale(0.08)
+    assert scale["anchor_odds"] == pytest.approx(0.92 / 0.08)
+    assert scale["anchor_base_rate"] == pytest.approx(0.08)
+    assert scale["pdo"] > 0
 
 
 def test_evaluate_reports_average_precision_for_the_imbalanced_target():

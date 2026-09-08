@@ -36,8 +36,13 @@ src/inference.py -> app/streamlit_app.py
 
 Model bundle เก็บ input schema, รายชื่อคอลัมน์ที่หน้าเว็บต้องส่ง, training-set
 defaults, imputer, encoder, scaler, feature selector, LightGBM, probability
-calibrator และ decision threshold ไว้ด้วยกัน จึงไม่มีการสร้าง preprocessing
-แยกจากโมเดลในหน้าแอป
+calibrator, decision threshold, ขอบเขตของ probability และ scale ของดัชนี
+ไว้ด้วยกัน จึงไม่มีการสร้าง preprocessing แยกจากโมเดลในหน้าแอป
+
+ดัชนี 300–850 ยึดกับอัตราผิดนัดของพอร์ตที่ใช้ฝึก ไม่ใช่ค่าตายตัวแบบ FICO
+ผู้สมัครค่ากลางได้ 644 และค่าที่เท่ากับอัตราผิดนัดของพอร์ตพอดีได้ 600
+ห้ามนำไปเทียบกับคะแนนเครดิตบูโร รายละเอียดอยู่ใน
+[PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md)
 
 โมเดลถูกจำกัดขอบเขตให้ใช้เฉพาะคอลัมน์ที่หน้าเว็บเก็บได้จริง ผ่าน
 `--feature-scope` ซึ่งค่าเริ่มต้นคือ `form` การเทรนด้วยฟีเจอร์ที่ตอนใช้งานจริง

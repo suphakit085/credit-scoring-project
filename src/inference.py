@@ -89,19 +89,29 @@ def predict_default_probability(
     selected = nonconstant[:, bundle["selected_indices"]]
     raw_probability = bundle["model"].predict_proba(selected)[:, 1]
     probability = float(bundle["calibrator"].predict(raw_probability)[0])
-    return float(np.clip(probability, 0.0, 1.0))
+    # Isotonic calibration emits exactly 0 and exactly 1 for its outermost
+    # bins. Serving those would tell an officer an applicant cannot default,
+    # or certainly will, on evidence that supports neither.
+    low, high = bundle.get("probability_bounds", (0.0, 1.0))
+    return float(np.clip(probability, low, high))
 
 
-def probability_to_score(probability: float) -> int:
-    """Convert calibrated PD to a conventional odds-based 300–850 index.
+# Used only for bundles predating the stored scale (version 3 and earlier).
+LEGACY_SCORE_SCALE = {"anchor_odds": 50.0, "anchor_points": 600.0, "pdo": 20.0}
 
-    This is a presentation index, not a consumer bureau score. The mapping uses
-    score 600 at 50:1 good-to-bad odds and 20 points to double the odds.
+
+def probability_to_score(probability: float, bundle: dict | None = None) -> int:
+    """Convert calibrated PD to an odds-based 300–850 index.
+
+    A presentation index, not a consumer bureau score. The scale lives in the
+    bundle so it stays fixed for a given model: `anchor_points` is the score at
+    `anchor_odds` good:bad, and `pdo` is the points that double the odds.
     """
+    scale = (bundle or {}).get("score_scale") or LEGACY_SCORE_SCALE
     probability = float(np.clip(probability, 1e-6, 1 - 1e-6))
     odds = (1.0 - probability) / probability
-    factor = 20.0 / np.log(2.0)
-    score = 600.0 + factor * np.log(odds / 50.0)
+    factor = float(scale["pdo"]) / np.log(2.0)
+    score = float(scale["anchor_points"]) + factor * np.log(odds / float(scale["anchor_odds"]))
     return int(np.clip(round(score), 300, 850))
 
 

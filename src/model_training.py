@@ -44,8 +44,18 @@ except ImportError:  # Allows `python src/model_training.py`.
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_VERSION = 3
+BUNDLE_VERSION = 4
 RANDOM_STATE = 42
+
+# Presentation scale for the 300-850 risk index. Anchored on the training
+# portfolio's own base rate rather than a fixed 50:1, because a fixed anchor
+# made the median applicant score 557 on a scale people read as FICO-like,
+# where 557 means "bad credit" rather than "perfectly ordinary". PDO is the
+# points needed to double the good:bad odds; 50 spreads this portfolio's
+# realistic odds range across the scale, where the conventional 20 left 98%
+# of applicants squeezed into 500-650.
+SCORE_ANCHOR_POINTS = 600.0
+SCORE_PDO = 50.0
 
 # Raw columns the Streamlit form supplies for every applicant. Anything outside
 # this list is unavailable at inference time and must not be relied on.
@@ -227,6 +237,39 @@ def verify_served_coverage(selected_names: list[str], served: list[str]) -> None
         )
 
 
+def calibrated_probability_bounds(calibrator: IsotonicRegression) -> tuple[float, float]:
+    """Bounds that keep isotonic's degenerate 0.0 and 1.0 out of served output.
+
+    IsotonicRegression emits exactly 0 and exactly 1 wherever a calibration bin
+    contained no defaults or only defaults. On this dataset 101 validation
+    applicants were scored at a 0.000000% chance of default and one at 100%,
+    which no sample size justifies, and which pinned them to the ends of the
+    index.
+
+    The bounds sit half way between zero and the lowest level the calibrator
+    can actually resolve (and symmetrically at the top). Staying strictly below
+    that level preserves the ordering, so ranking metrics are unaffected, while
+    refusing to state certainty.
+    """
+    grid = calibrator.predict(np.linspace(0.0, 1.0, 20001))
+    positive = grid[grid > 0.0]
+    below_one = grid[grid < 1.0]
+    low = float(positive.min()) / 2.0 if positive.size else 1e-6
+    high = 1.0 - (1.0 - float(below_one.max())) / 2.0 if below_one.size else 1.0 - 1e-6
+    return low, high
+
+
+def make_score_scale(base_rate: float) -> dict[str, float]:
+    """Odds-based scale anchored on the portfolio the model was trained for."""
+    base_rate = float(np.clip(base_rate, 1e-6, 1 - 1e-6))
+    return {
+        "anchor_odds": (1.0 - base_rate) / base_rate,
+        "anchor_points": SCORE_ANCHOR_POINTS,
+        "pdo": SCORE_PDO,
+        "anchor_base_rate": base_rate,
+    }
+
+
 def optimal_f1_threshold(y_true: pd.Series, probabilities: np.ndarray) -> float:
     precision, recall, thresholds = precision_recall_curve(y_true, probabilities)
     if thresholds.size == 0:
@@ -340,10 +383,18 @@ def train_model(
     calibrator = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
     calibrator.fit(model.predict_proba(calibration_selected)[:, 1], calibration_y)
 
-    threshold_probs = calibrator.predict(model.predict_proba(threshold_selected)[:, 1])
+    # Applied here as well as at inference so the reported metrics describe the
+    # probabilities the app actually serves.
+    low, high = calibrated_probability_bounds(calibrator)
+
+    threshold_probs = np.clip(
+        calibrator.predict(model.predict_proba(threshold_selected)[:, 1]), low, high
+    )
     threshold = optimal_f1_threshold(threshold_y, threshold_probs)
 
-    validation_probs = calibrator.predict(model.predict_proba(validation_selected)[:, 1])
+    validation_probs = np.clip(
+        calibrator.predict(model.predict_proba(validation_selected)[:, 1]), low, high
+    )
     metrics = evaluate(validation_y, validation_probs, threshold)
 
     importance = pd.DataFrame(
@@ -364,6 +415,8 @@ def train_model(
         "selected_indices": selected_indices,
         "model": model,
         "calibrator": calibrator,
+        "probability_bounds": (low, high),
+        "score_scale": make_score_scale(float(train_y.mean())),
         "decision_threshold": threshold,
         "risk_thresholds": {"low": threshold * 0.5, "high": threshold},
         "selected_feature_names": selected_names,

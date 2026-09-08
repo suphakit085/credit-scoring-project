@@ -61,11 +61,12 @@ integration exists.
 
 ### The bundle is the contract
 
-`src/model_training.py` writes one `models/credit_scoring_bundle.joblib` (version 3)
+`src/model_training.py` writes one `models/credit_scoring_bundle.joblib` (version 4)
 holding the input schema, `served_columns`, training-set defaults, fitted preprocessor,
-variance filter, selected feature indices, LightGBM model, isotonic calibrator and
-thresholds. Anything that changes preprocessing, feature formulas or column order
-requires a **retrain**, not an edit on the serving side.
+variance filter, selected feature indices, LightGBM model, isotonic calibrator,
+thresholds, `probability_bounds` and `score_scale`. Anything that changes
+preprocessing, feature formulas or column order requires a **retrain**, not an edit on
+the serving side.
 
 `served_columns` is the list of raw columns the UI must supply. `src/inference.py`
 treats it as the boundary between two fallback behaviours, and this distinction is the
@@ -141,9 +142,33 @@ properties of the training data and must stay in sync with it:
   under 0.01 for annual income from 30,000 to 5,000,000), so inventing a value for them
   effectively invents the answer.
 
-`probability_to_score` is a presentation-only odds mapping (600 points at 50:1 odds, 20
-points per doubling), not a bureau score. Risk bands come from the bundle's
-`risk_thresholds`.
+### The risk index is calibrated to this portfolio, not to FICO
+
+`probability_to_score` is a presentation-only odds mapping, not a bureau score. Both
+of its parameters live in the bundle under `score_scale` so they stay fixed for a
+given model, and both were chosen from measurements rather than convention:
+
+- **Anchor**: the score is `anchor_points` (600) at the training portfolio's own base
+  rate (8.07%, so 11.39:1 odds). A fixed 50:1 anchor put the median applicant at 557,
+  which on the 300-850 scale people read as FICO-like means "bad credit" rather than
+  "perfectly ordinary". The median now lands at 644.
+- **PDO** (points to double the odds) is 50, not the conventional 20. At 20, the p5-p95
+  span was 103 points of a 550-point scale and 63% of applicants sat inside 550-600. At
+  50 the span is 258 points and that bucket holds 19%.
+
+Do not read these scores as FICO scores or compare them across portfolios.
+
+`probability_bounds` clamps served probabilities away from 0 and 1. Isotonic
+calibration emits exactly 0 and exactly 1 for its outermost bins: before this, 101
+validation applicants were served a 0.000000% chance of default and one a 100% chance.
+The bounds sit half way between the degenerate value and the lowest level the
+calibrator can resolve, which preserves ordering — ROC-AUC is unchanged to 10 decimal
+places — while refusing to claim certainty. Training applies the same clamp before
+selecting the threshold and computing metrics, so reported numbers describe what the
+app serves.
+
+Risk bands (low/medium/high) come from the bundle's `risk_thresholds` and are driven by
+probability, not by the score.
 
 ## Data and git
 

@@ -846,7 +846,7 @@ def main() -> None:
             probability = predict_default_probability(values, bundle)
             st.session_state["assessment"] = {
                 "probability": probability,
-                "score": probability_to_score(probability),
+                "score": probability_to_score(probability, bundle),
                 "level": risk_level(probability, bundle),
                 "threshold": float(bundle["decision_threshold"]),
             }
