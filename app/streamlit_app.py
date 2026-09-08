@@ -439,6 +439,29 @@ st.markdown(
       [data-testid="stAlert"] { border-radius: 10px; font-size: .92rem; }
 
       #MainMenu, footer { visibility: hidden; }
+
+      /* Streamlit inherits overflow-wrap: break-word, which splits a word
+         mid-character in a narrow column ("features" became "feature" + "s").
+         Numbers and short values should wrap between words or not at all. */
+      .score-number, .probability-value, .board-value, .card-label {
+        overflow-wrap: normal;
+      }
+
+      /* The three result columns share the content area beside a 300px
+         sidebar. Below roughly 1100px that leaves each card under 250px,
+         where "RISK INDEX (300-850)" wraps onto four lines and the score
+         digits stack. Stack the cards full-width instead. Scoped to the main
+         area: the sidebar has its own two-column rows (external-score value
+         beside its "not found" checkbox) that must stay side by side. */
+      @media (max-width: 1100px) {
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+        [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+          flex: 1 1 100% !important;
+          min-width: 100% !important;
+        }
+        .result-card { margin-bottom: .75rem; }
+      }
+
       @media (max-width: 800px) {
         .block-container { padding: 1rem 1rem 2.5rem; }
         .hero { padding: 1.4rem; }
@@ -599,7 +622,7 @@ def render_result(assessment: dict, bundle: dict) -> None:
         st.markdown(
             f"""
             <div class="result-card {risk["class_name"]}">
-              <span class="risk-badge {risk["class_name"]}"><span>{risk["icon"]}</span>{risk["title"]}</span>
+              <span class="risk-badge {risk["class_name"]}"><span>{risk["icon"]}</span>{risk["eyebrow"]}</span>
               <div class="risk-title">{risk["title"]}</div>
               <p class="risk-copy">{risk["description"]}</p>
               <p class="note">เกณฑ์ตรวจสอบของโมเดลอยู่ที่ {threshold:.2%}
