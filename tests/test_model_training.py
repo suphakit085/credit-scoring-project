@@ -6,10 +6,11 @@ from src.model_training import (
     PROTECTED_ATTRIBUTES,
     SERVED_COLUMNS,
     calibrated_probability_bounds,
+    cost_ratio_threshold,
     evaluate,
     is_served_feature,
+    make_risk_thresholds,
     make_score_scale,
-    optimal_f1_threshold,
     scope_columns,
     served_feature_names,
     verify_served_coverage,
@@ -78,10 +79,33 @@ def test_verify_served_coverage_raises_when_a_form_field_reaches_nothing():
         verify_served_coverage(["AGE_YEARS"], ["DAYS_BIRTH", "AMT_ANNUITY"])
 
 
-def test_optimal_f1_threshold_prefers_a_separating_cut():
-    y = pd.Series([0, 0, 1, 1])
-    probabilities = np.array([0.1, 0.2, 0.8, 0.9])
-    assert 0.2 < optimal_f1_threshold(y, probabilities) <= 0.8
+@pytest.mark.parametrize("ratio, expected", [(1, 0.5), (3, 0.25), (5, 1 / 6), (9, 0.1)])
+def test_cost_ratio_threshold_is_the_expected_cost_break_even(ratio, expected):
+    assert cost_ratio_threshold(ratio) == pytest.approx(expected)
+
+
+def test_cost_ratio_threshold_rejects_a_non_positive_ratio():
+    with pytest.raises(ValueError):
+        cost_ratio_threshold(0)
+
+
+def test_flagging_at_the_cost_threshold_minimises_expected_cost():
+    """At p = threshold, approving and rejecting cost the same."""
+    ratio = 5.0
+    p = cost_ratio_threshold(ratio)
+    cost_of_approving = p * ratio
+    cost_of_rejecting = 1 - p
+    assert cost_of_approving == pytest.approx(cost_of_rejecting)
+
+
+def test_low_band_is_the_portfolio_base_rate():
+    bands = make_risk_thresholds(base_rate=0.08, decision_threshold=1 / 6)
+    assert bands == {"low": pytest.approx(0.08), "high": pytest.approx(1 / 6)}
+
+
+def test_low_band_stays_below_high_when_the_threshold_is_cautious():
+    bands = make_risk_thresholds(base_rate=0.08, decision_threshold=0.05)
+    assert bands["low"] < bands["high"]
 
 
 def degenerate_calibration(n_tail: int = 5, n_body: int = 400):

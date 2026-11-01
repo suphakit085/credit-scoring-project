@@ -28,7 +28,6 @@ from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
     f1_score,
-    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -44,7 +43,7 @@ except ImportError:  # Allows `python src/model_training.py`.
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_VERSION = 4
+BUNDLE_VERSION = 5
 RANDOM_STATE = 42
 
 # Presentation scale for the 300-850 risk index. Anchored on the training
@@ -56,6 +55,14 @@ RANDOM_STATE = 42
 # of applicants squeezed into 500-650.
 SCORE_ANCHOR_POINTS = 600.0
 SCORE_PDO = 50.0
+
+# Approving an applicant who defaults is assumed to cost five times as much as
+# rejecting one who would have repaid: a default typically loses a large share
+# of principal, a rejection loses only the interest margin. It gives a 16.7%
+# threshold, essentially the 16.65% the old F1 search had landed on, so this
+# makes the existing behaviour explicit rather than changing it. Replace with
+# real loss and margin figures when they are available.
+DEFAULT_COST_RATIO = 5.0
 
 # Protected attributes the model must never learn from, in any scope. Sex and
 # marital status are prohibited bases for credit decisions in many
@@ -304,12 +311,35 @@ def make_score_scale(base_rate: float) -> dict[str, float]:
     }
 
 
-def optimal_f1_threshold(y_true: pd.Series, probabilities: np.ndarray) -> float:
-    precision, recall, thresholds = precision_recall_curve(y_true, probabilities)
-    if thresholds.size == 0:
-        return 0.5
-    scores = 2 * precision[:-1] * recall[:-1] / np.maximum(precision[:-1] + recall[:-1], 1e-12)
-    return float(thresholds[int(np.nanargmax(scores))])
+def cost_ratio_threshold(cost_ratio: float) -> float:
+    """Decision threshold that minimises expected cost for calibrated probabilities.
+
+    `cost_ratio` is the cost of approving an applicant who defaults divided by
+    the cost of rejecting one who would have repaid. Flagging is worth it once
+    p * cost_ratio > (1 - p), i.e. p > 1 / (1 + cost_ratio). This is valid only
+    because the probabilities are calibrated.
+
+    It replaces picking the F1-maximising cut on a held-out split, which moved
+    from 0.1665 to 0.1873 between two trainings of near-identical models and
+    had a bootstrap interval 15% of its own width. F1 also encodes no business
+    trade-off; this states one explicitly and gives the same answer every time.
+    """
+    if cost_ratio <= 0:
+        raise ValueError(f"cost_ratio must be positive, got {cost_ratio}")
+    return 1.0 / (1.0 + float(cost_ratio))
+
+
+def make_risk_thresholds(base_rate: float, decision_threshold: float) -> dict[str, float]:
+    """Low/medium/high bands with a meaning an officer can repeat.
+
+    Low means below the portfolio's average default rate; high means at or
+    above the decision threshold. The previous lower edge was the threshold
+    times 0.5, which had no justification beyond looking reasonable.
+    """
+    low = float(base_rate)
+    if low >= decision_threshold:  # a very cautious cost ratio puts the cut below average
+        low = decision_threshold / 2.0
+    return {"low": low, "high": float(decision_threshold)}
 
 
 def evaluate(y_true: pd.Series, probabilities: np.ndarray, threshold: float) -> dict[str, float]:
@@ -320,6 +350,7 @@ def evaluate(y_true: pd.Series, probabilities: np.ndarray, threshold: float) -> 
         "average_precision": float(average_precision_score(y_true, probabilities)),
         "brier_score": float(brier_score_loss(y_true, probabilities)),
         "threshold": float(threshold),
+        "flagged_rate": float(np.mean(predictions)),
         "accuracy": float(accuracy_score(y_true, predictions)),
         "precision": float(precision_score(y_true, predictions, zero_division=0)),
         "recall": float(recall_score(y_true, predictions, zero_division=0)),
@@ -334,13 +365,13 @@ def train_model(
     max_features: int = 200,
     sample_rows: int | None = None,
     feature_scope: str = "form",
+    cost_ratio: float = DEFAULT_COST_RATIO,
 ) -> dict:
     """Train on untouched class balance and evaluate on an isolated holdout.
 
-    Four splits, none reused: the calibrator is fitted on one, the decision
-    threshold is chosen on a second, and the third is scored exactly once.
-    Choosing the threshold on the calibrator's own split made the operating
-    point optimistic, because isotonic regression is in-sample there.
+    Three splits, none reused: 70% trains the model, 20% fits the isotonic
+    calibrator, 10% is scored exactly once. The decision threshold comes from
+    `cost_ratio` by formula, so it needs no data of its own.
     """
     df = pd.read_csv(data_path, nrows=sample_rows, low_memory=False)
     if "TARGET" not in df:
@@ -356,30 +387,33 @@ def train_model(
     train_x, holdout_x, train_y, holdout_y = train_test_split(
         raw_x, y, test_size=0.30, random_state=RANDOM_STATE, stratify=y
     )
-    calibration_x, rest_x, calibration_y, rest_y = train_test_split(
+    # Two-step split kept from when a separate split chose the threshold, so
+    # the validation rows stay exactly the ones every earlier measurement in
+    # this project used. The freed 10% joins calibration, doubling the rows
+    # behind isotonic regression's thinly supported tails.
+    first_calibration_x, rest_x, first_calibration_y, rest_y = train_test_split(
         holdout_x, holdout_y, test_size=2 / 3, random_state=RANDOM_STATE, stratify=holdout_y
     )
-    threshold_x, validation_x, threshold_y, validation_y = train_test_split(
+    second_calibration_x, validation_x, second_calibration_y, validation_y = train_test_split(
         rest_x, rest_y, test_size=0.50, random_state=RANDOM_STATE, stratify=rest_y
     )
+    calibration_x = pd.concat([first_calibration_x, second_calibration_x])
+    calibration_y = pd.concat([first_calibration_y, second_calibration_y])
 
     defaults = make_input_defaults(train_x)
     categories, missing_rates = describe_served_inputs(train_x, served)
     train_features = generate_features(train_x)
     calibration_features = generate_features(calibration_x)
-    threshold_features = generate_features(threshold_x)
     validation_features = generate_features(validation_x)
 
     preprocessor = build_preprocessor(train_features)
     train_matrix = preprocessor.fit_transform(train_features)
     calibration_matrix = preprocessor.transform(calibration_features)
-    threshold_matrix = preprocessor.transform(threshold_features)
     validation_matrix = preprocessor.transform(validation_features)
 
     variance_filter = VarianceThreshold()
     train_nonconstant = variance_filter.fit_transform(train_matrix)
     calibration_nonconstant = variance_filter.transform(calibration_matrix)
-    threshold_nonconstant = variance_filter.transform(threshold_matrix)
     validation_nonconstant = variance_filter.transform(validation_matrix)
 
     transformed_names = np.asarray(preprocessor.get_feature_names_out(), dtype=object)
@@ -392,7 +426,6 @@ def train_model(
 
     train_selected = train_nonconstant[:, selected_indices]
     calibration_selected = calibration_nonconstant[:, selected_indices]
-    threshold_selected = threshold_nonconstant[:, selected_indices]
     validation_selected = validation_nonconstant[:, selected_indices]
 
     model = lgb.LGBMClassifier(
@@ -422,10 +455,8 @@ def train_model(
     calibration_probs = calibrator.predict(model.predict_proba(calibration_selected)[:, 1])
     low, high = calibrated_probability_bounds(calibration_probs, calibration_y)
 
-    threshold_probs = np.clip(
-        calibrator.predict(model.predict_proba(threshold_selected)[:, 1]), low, high
-    )
-    threshold = optimal_f1_threshold(threshold_y, threshold_probs)
+    threshold = cost_ratio_threshold(cost_ratio)
+    base_rate = float(train_y.mean())
 
     validation_probs = np.clip(
         calibrator.predict(model.predict_proba(validation_selected)[:, 1]), low, high
@@ -451,9 +482,10 @@ def train_model(
         "model": model,
         "calibrator": calibrator,
         "probability_bounds": (low, high),
-        "score_scale": make_score_scale(float(train_y.mean())),
+        "score_scale": make_score_scale(base_rate),
+        "cost_ratio": float(cost_ratio),
         "decision_threshold": threshold,
-        "risk_thresholds": {"low": threshold * 0.5, "high": threshold},
+        "risk_thresholds": make_risk_thresholds(base_rate, threshold),
         "selected_feature_names": selected_names,
         "metrics": metrics,
         "training": {
@@ -461,8 +493,8 @@ def train_model(
             "rows": int(len(raw_x)),
             "train_rows": int(len(train_x)),
             "calibration_rows": int(len(calibration_x)),
-            "threshold_rows": int(len(threshold_x)),
             "validation_rows": int(len(validation_x)),
+            "cost_ratio": float(cost_ratio),
             "positive_rate": float(y.mean()),
             "smote_used": False,
             "random_state": RANDOM_STATE,
@@ -508,6 +540,15 @@ def parse_args() -> argparse.Namespace:
             "full: every column, which leaves most features frozen at inference."
         ),
     )
+    parser.add_argument(
+        "--cost-ratio",
+        type=float,
+        default=DEFAULT_COST_RATIO,
+        help=(
+            "Cost of approving an applicant who defaults, relative to rejecting one "
+            f"who would repay. Threshold = 1 / (1 + ratio). Default {DEFAULT_COST_RATIO:g}."
+        ),
+    )
     parser.add_argument("--sample-rows", type=int, default=None, help="Development smoke test only")
     return parser.parse_args()
 
@@ -515,7 +556,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     bundle = train_model(
-        args.data, args.output, args.max_features, args.sample_rows, args.feature_scope
+        args.data,
+        args.output,
+        args.max_features,
+        args.sample_rows,
+        args.feature_scope,
+        args.cost_ratio,
     )
     print(json.dumps(bundle["metrics"], indent=2))
     print(f"Scope: {bundle['feature_scope']} | features: {len(bundle['selected_feature_names'])}")
