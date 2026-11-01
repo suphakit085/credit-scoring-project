@@ -180,6 +180,20 @@ def test_score_scale_is_anchored_on_the_training_base_rate():
     assert scale["pdo"] > 0
 
 
+@pytest.mark.parametrize("bounds", [(0.0021, 0.58), (0.0005, 0.95), (0.01, 0.30)])
+def test_served_bounds_never_clip_the_index(bounds):
+    """Both bounds must map inside 300-850, whatever the calibration data allows."""
+    from src.inference import probability_to_score
+
+    bundle = {"score_scale": make_score_scale(0.08, bounds)}
+    best, worst = (probability_to_score(b, bundle) for b in bounds)
+    assert 300 < worst < best < 850
+
+
+def test_pdo_is_not_widened_beyond_its_limit_when_there_is_room():
+    assert make_score_scale(0.08, (0.02, 0.30))["pdo"] == pytest.approx(50.0)
+
+
 def test_evaluate_reports_average_precision_for_the_imbalanced_target():
     y = pd.Series([0, 0, 0, 1])
     probabilities = np.array([0.1, 0.2, 0.3, 0.9])

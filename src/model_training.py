@@ -56,7 +56,8 @@ RANDOM_STATE = 42
 # realistic odds range across the scale, where the conventional 20 left 98%
 # of applicants squeezed into 500-650.
 SCORE_ANCHOR_POINTS = 600.0
-SCORE_PDO = 50.0
+SCORE_PDO = 50.0  # upper limit; make_score_scale lowers it if needed to avoid clipping
+SCORE_MIN, SCORE_MAX = 300.0, 850.0
 
 # Approving an applicant who defaults is assumed to cost five times as much as
 # rejecting one who would have repaid: a default typically loses a large share
@@ -302,13 +303,34 @@ def calibrated_probability_bounds(
     return float(low), float(high)
 
 
-def make_score_scale(base_rate: float) -> dict[str, float]:
-    """Odds-based scale anchored on the portfolio the model was trained for."""
+def make_score_scale(
+    base_rate: float, bounds: tuple[float, float] | None = None
+) -> dict[str, float]:
+    """Odds-based scale anchored on the portfolio the model was trained for.
+
+    Given the served probability bounds, PDO shrinks below SCORE_PDO if that
+    is what it takes for both bounds to land inside 300-850. Otherwise the
+    index clips: when doubling the calibration data lowered the floor to
+    0.21%, 136 validation applicants piled up at exactly 850 with a fixed PDO
+    of 50, flattening distinct probabilities into one score.
+    """
     base_rate = float(np.clip(base_rate, 1e-6, 1 - 1e-6))
+    anchor_odds = (1.0 - base_rate) / base_rate
+    pdo = SCORE_PDO
+    if bounds is not None:
+        low, high = (float(np.clip(b, 1e-6, 1 - 1e-6)) for b in bounds)
+        doublings_up = np.log2(((1.0 - low) / low) / anchor_odds)
+        doublings_down = np.log2(anchor_odds / ((1.0 - high) / high))
+        limits = [SCORE_PDO]
+        if doublings_up > 0:
+            limits.append((SCORE_MAX - SCORE_ANCHOR_POINTS) / doublings_up)
+        if doublings_down > 0:
+            limits.append((SCORE_ANCHOR_POINTS - SCORE_MIN) / doublings_down)
+        pdo = float(np.floor(min(limits)))
     return {
-        "anchor_odds": (1.0 - base_rate) / base_rate,
+        "anchor_odds": anchor_odds,
         "anchor_points": SCORE_ANCHOR_POINTS,
-        "pdo": SCORE_PDO,
+        "pdo": pdo,
         "anchor_base_rate": base_rate,
     }
 
@@ -484,7 +506,7 @@ def train_model(
         "model": model,
         "calibrator": calibrator,
         "probability_bounds": (low, high),
-        "score_scale": make_score_scale(base_rate),
+        "score_scale": make_score_scale(base_rate, (low, high)),
         "cost_ratio": float(cost_ratio),
         "decision_threshold": threshold,
         "risk_thresholds": make_risk_thresholds(base_rate, threshold),
