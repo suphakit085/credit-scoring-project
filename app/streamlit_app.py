@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -509,6 +510,15 @@ def category_value(choice: object) -> object:
     return np.nan if choice == UNKNOWN_CHOICE else choice
 
 
+def input_fingerprint(values: dict) -> str:
+    """Stable identity for a set of form inputs, NaN included.
+
+    A plain dict comparison would never match once an input is missing,
+    because NaN != NaN; serialising maps every NaN to the same token.
+    """
+    return json.dumps(values, sort_keys=True, default=str)
+
+
 def render_brand() -> None:
     st.sidebar.markdown(
         """
@@ -523,7 +533,9 @@ def render_brand() -> None:
 
 def render_hero(bundle: dict) -> None:
     validation_auc = bundle.get("metrics", {}).get("roc_auc")
-    auc_text = f"{validation_auc:.3f}" if validation_auc is not None else "—"
+    # Two decimals: the bootstrap 95% interval is about 0.019 wide, so a third
+    # digit would claim precision one validation split cannot support.
+    auc_text = f"{validation_auc:.2f}" if validation_auc is not None else "—"
     n_features = len(bundle.get("selected_feature_names", []))
     st.markdown(
         f"""
@@ -641,11 +653,12 @@ def render_result(assessment: dict, bundle: dict) -> None:
     metrics = bundle.get("metrics", {})
     metric_1, metric_2, metric_3 = st.columns(3)
     metric_1.metric("Decision threshold", f"{threshold:.2%}")
-    metric_2.metric("Validation ROC-AUC", f"{metrics.get('roc_auc', 0):.3f}")
-    metric_3.metric("Validation Brier score", f"{metrics.get('brier_score', 0):.4f}")
+    metric_2.metric("Validation ROC-AUC", f"{metrics.get('roc_auc', 0):.2f}")
+    metric_3.metric("Validation Brier score", f"{metrics.get('brier_score', 0):.3f}")
 
     with st.expander("ดูรายละเอียดโมเดลและข้อควรทราบ"):
         detail_col, note_col = st.columns([1, 1.25])
+        bands = bundle.get("risk_thresholds", {})
         with detail_col:
             st.caption("Model governance")
             st.write(
@@ -653,15 +666,23 @@ def render_result(assessment: dict, bundle: dict) -> None:
                     "bundle_version": bundle.get("bundle_version"),
                     "feature_scope": bundle.get("feature_scope"),
                     "selected_features": len(bundle.get("selected_feature_names", [])),
+                    "cost_ratio": bundle.get("cost_ratio"),
                     "trained_at": bundle.get("created_at"),
                 }
             )
         with note_col:
-            st.caption("Deployment note")
+            st.caption("เกณฑ์ตัดสินใจ")
+            ratio = bundle.get("cost_ratio")
+            if ratio:
+                st.write(
+                    f"เกณฑ์ตรวจสอบ {threshold:.2%} คำนวณจากสมมติฐานว่าการอนุมัติผู้ที่จะผิดนัด "
+                    f"เสียหายมากกว่าการปฏิเสธผู้ที่จะชำระคืนได้ {ratio:g} เท่า "
+                    f"ความเสี่ยงต่ำหมายถึงต่ำกว่าอัตราผิดนัดเฉลี่ยของพอร์ต {bands.get('low', 0):.2%}"
+                )
+            st.caption("ข้อควรทราบ")
             st.write(
-                "โมเดลนี้เรียนรู้เฉพาะจากช่องข้อมูลที่แบบฟอร์มนี้เก็บได้จริง "
-                "ช่องใดที่เจ้าหน้าที่ไม่ได้กรอกหรือติ๊กไม่พบในระบบ จะถูกส่งเป็นค่าว่าง "
-                "ไม่ใช่ค่ากลางของข้อมูลฝึก เพื่อให้ตรงกับสิ่งที่โมเดลเรียนรู้มา "
+                "โมเดลเรียนรู้เฉพาะจากช่องที่แบบฟอร์มนี้เก็บได้จริง และไม่ใช้เพศหรือสถานภาพสมรส "
+                "ช่องที่ไม่ได้กรอกหรือติ๊กไม่พบในระบบจะถูกส่งเป็นค่าว่าง ไม่ใช่ค่ากลางของข้อมูลฝึก "
                 "ระบบ production ยังควรบันทึก model และ data version ของทุกคำทำนาย"
             )
 
@@ -674,7 +695,11 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
         unsafe_allow_html=True,
     )
 
-    with st.sidebar.form("applicant_form", border=False):
+    # Deliberately not an st.form. Inside a form no widget reruns the script
+    # until submit, so ticking "ไม่พบในระบบ" left its score box editable until
+    # the officer had already pressed the button once. main() instead detects
+    # when the inputs drift from the last assessment and says so.
+    with st.sidebar:
         # เพศและสถานภาพสมรสถูกตัดออกจากโมเดลโดยเจตนา (PROTECTED_ATTRIBUTES ใน
         # src/model_training.py) จำนวนสมาชิกครัวเรือนจึงถามตรงๆ จากจำนวนผู้ใหญ่
         # แทนการอนุมานจากสถานภาพสมรสแบบเดิม
@@ -775,7 +800,7 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
                     np.nan if unavailable else float(entered)
                 )
 
-        submitted = st.form_submit_button("ประเมินความเสี่ยง", type="primary", use_container_width=True)
+        submitted = st.button("ประเมินความเสี่ยง", type="primary", use_container_width=True)
 
     values = {
         "DAYS_BIRTH": -age * 365.25,
@@ -829,6 +854,8 @@ def main() -> None:
             )
             st.stop()
 
+    fingerprint = input_fingerprint(values)
+
     if submitted:
         try:
             probability = predict_default_probability(values, bundle)
@@ -837,6 +864,7 @@ def main() -> None:
                 "score": probability_to_score(probability, bundle),
                 "level": risk_level(probability, bundle),
                 "threshold": float(bundle["decision_threshold"]),
+                "fingerprint": fingerprint,
             }
         except Exception as exc:
             st.error(f"ประมวลผลไม่สำเร็จ: {exc}")
@@ -845,6 +873,13 @@ def main() -> None:
     render_hero(bundle)
     assessment = st.session_state.get("assessment")
     if assessment:
+        if assessment.get("fingerprint") != fingerprint:
+            # Without a form, edits rerun the page immediately while the result
+            # on screen still belongs to the previous inputs.
+            st.warning(
+                "ข้อมูลในแบบฟอร์มถูกแก้ไขหลังการประเมินครั้งล่าสุด "
+                "ผลด้านล่างเป็นของข้อมูลชุดก่อน กดประเมินความเสี่ยงอีกครั้งเพื่ออัปเดต"
+            )
         render_result(assessment, bundle)
     else:
         render_empty_state(bundle)
