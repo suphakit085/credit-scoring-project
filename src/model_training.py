@@ -38,8 +38,10 @@ from sklearn.preprocessing import OneHotEncoder, RobustScaler
 
 try:
     from .feature_generation import derived_features_consuming, generate_features
+    from .inference import write_digest
 except ImportError:  # Allows `python src/model_training.py`.
     from feature_generation import derived_features_consuming, generate_features
+    from inference import write_digest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -506,6 +508,7 @@ def train_model(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, output_path)
+    write_digest(output_path)
     # Report names follow the bundle stem. Fixed names let a --sample-rows smoke
     # test overwrite the reports belonging to the full production bundle.
     stem = output_path.stem

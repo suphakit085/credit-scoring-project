@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import warnings
 from pathlib import Path
 
 import joblib
@@ -35,7 +37,56 @@ REQUIRED_BUNDLE_KEYS = {
 }
 
 
+def digest_path(path: Path) -> Path:
+    """Sidecar holding a bundle's SHA-256, in `sha256sum` format."""
+    path = Path(path)
+    return path.with_name(path.name + ".sha256")
+
+
+def file_sha256(path: Path) -> str:
+    sha = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            sha.update(block)
+    return sha.hexdigest()
+
+
+def write_digest(path: Path) -> str:
+    """Record a bundle's hash next to it; `sha256sum -c` can verify the file."""
+    digest = file_sha256(path)
+    # newline="\n": text mode on Windows would write "\r\n", and sha256sum then
+    # reads the filename with a trailing carriage return and cannot find it.
+    digest_path(path).write_text(
+        f"{digest}  {Path(path).name}\n", encoding="utf-8", newline="\n"
+    )
+    return digest
+
+
 def load_bundle(path: Path = DEFAULT_BUNDLE_PATH) -> dict:
+    """Load a bundle, verifying its recorded hash *before* unpickling it.
+
+    joblib files are pickles, and unpickling runs code, so the check has to
+    come first: verifying after load would already be too late. This catches
+    a corrupted, truncated or accidentally swapped file. It does not stop
+    someone who can rewrite both the bundle and its sidecar; only load
+    bundles from a source you trust.
+    """
+    path = Path(path)
+    sidecar = digest_path(path)
+    if sidecar.exists():
+        expected = sidecar.read_text(encoding="utf-8").split()[0]
+        actual = file_sha256(path)
+        if actual != expected:
+            raise ValueError(
+                f"Model bundle {path.name} does not match its recorded SHA-256 "
+                f"({actual[:12]}… vs {expected[:12]}…); refusing to load it."
+            )
+    else:
+        warnings.warn(
+            f"No {sidecar.name} beside {path.name}; loading without an integrity check. "
+            "Retrain to produce one.",
+            stacklevel=2,
+        )
     bundle = joblib.load(path)
     missing = REQUIRED_BUNDLE_KEYS.difference(bundle)
     if missing:
