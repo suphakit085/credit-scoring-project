@@ -82,3 +82,8 @@ output/
 # Generated model reports (derived from the bundle stem)
 models/*_metrics.json
 models/*_feature_importance.csv
+models/*.sha256
+
+# Retired SMOTE-era data and pre-v4 model files, kept locally in case they are
+# needed again. Nothing reads them; safe to delete to reclaim ~1.8 GB.
+archive/

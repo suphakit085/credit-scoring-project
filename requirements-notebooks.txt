@@ -1,0 +1,11 @@
+# Only needed to re-run the historical notebooks in notebooks/.
+# Their metrics are inflated (SMOTE was applied before splitting) and must not
+# be quoted; src/ is the supported pipeline.
+-r requirements.txt
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
+shap>=0.46,<1
+xgboost>=2.1,<4
+imbalanced-learn>=0.12,<1
+jupyter>=1.1,<2
+kaggle>=1.6,<2
