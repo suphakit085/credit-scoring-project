@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from src.model_training import (
+    PROTECTED_ATTRIBUTES,
     SERVED_COLUMNS,
     calibrated_probability_bounds,
     evaluate,
@@ -31,9 +32,21 @@ def test_application_scope_drops_history_aggregates_only():
     assert scope_columns(columns, "application") == ["AMT_CREDIT"]
 
 
-def test_full_scope_keeps_everything():
+def test_full_scope_keeps_everything_except_protected_attributes():
     columns = ["AMT_CREDIT", "BUREAU_X_mean"]
     assert scope_columns(columns, "full") == columns
+
+
+@pytest.mark.parametrize("scope", ["application", "full"])
+def test_wider_scopes_cannot_reintroduce_protected_attributes(scope):
+    columns = ["AMT_CREDIT", *PROTECTED_ATTRIBUTES, "DAYS_BIRTH"]
+    selected = scope_columns(columns, scope)
+    assert not set(PROTECTED_ATTRIBUTES) & set(selected)
+    assert {"AMT_CREDIT", "DAYS_BIRTH"} <= set(selected)
+
+
+def test_form_scope_excludes_protected_attributes():
+    assert not set(PROTECTED_ATTRIBUTES) & set(SERVED_COLUMNS)
 
 
 def test_unknown_scope_is_rejected():
@@ -48,10 +61,10 @@ def test_served_feature_names_include_derived_domain_features():
 
 
 def test_is_served_feature_matches_indicators_and_one_hot_columns():
-    reachable = served_feature_names(["AMT_CREDIT", "CODE_GENDER"])
+    reachable = served_feature_names(["AMT_CREDIT", "FLAG_OWN_CAR"])
     assert is_served_feature("AMT_CREDIT", reachable)
     assert is_served_feature("missingindicator_AMT_CREDIT", reachable)
-    assert is_served_feature("CODE_GENDER_F", reachable)
+    assert is_served_feature("FLAG_OWN_CAR_Y", reachable)
     assert not is_served_feature("BUREAU_AMT_CREDIT_mean", reachable)
 
 

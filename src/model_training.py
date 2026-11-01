@@ -57,13 +57,21 @@ RANDOM_STATE = 42
 SCORE_ANCHOR_POINTS = 600.0
 SCORE_PDO = 50.0
 
+# Protected attributes the model must never learn from, in any scope. Sex and
+# marital status are prohibited bases for credit decisions in many
+# jurisdictions. Measured on this dataset, dropping both costs 0.0017 ROC-AUC
+# with a 95% paired interval of [-0.0036, +0.0002], i.e. not distinguishable
+# from zero, while an otherwise identical applicant's PD used to move by 1.45x
+# on sex alone. Age is kept: dropping it costs a significant 0.0043, and many
+# regimes permit age in empirically derived scoring provided older applicants
+# are not disadvantaged. Confirm against local lending rules before real use.
+PROTECTED_ATTRIBUTES = ("CODE_GENDER", "NAME_FAMILY_STATUS")
+
 # Raw columns the Streamlit form supplies for every applicant. Anything outside
 # this list is unavailable at inference time and must not be relied on.
 SERVED_COLUMNS = [
-    "CODE_GENDER",
     "DAYS_BIRTH",
     "NAME_EDUCATION_TYPE",
-    "NAME_FAMILY_STATUS",
     "NAME_HOUSING_TYPE",
     "CNT_CHILDREN",
     "CNT_FAM_MEMBERS",
@@ -99,7 +107,11 @@ def _json_value(value):
 
 
 def scope_columns(columns: list[str], scope: str) -> list[str]:
-    """Restrict the raw column set to what the chosen serving mode can supply."""
+    """Restrict the raw column set to what the chosen serving mode can supply.
+
+    Protected attributes are removed in every scope, so widening the scope can
+    never quietly reintroduce them.
+    """
     if scope not in FEATURE_SCOPES:
         raise ValueError(f"scope must be one of {FEATURE_SCOPES}, got {scope!r}")
     if scope == "form":
@@ -107,10 +119,11 @@ def scope_columns(columns: list[str], scope: str) -> list[str]:
         missing = [c for c in SERVED_COLUMNS if c not in columns]
         if missing:
             raise ValueError(f"Dataset is missing form-scope columns: {missing}")
-        return selected
-    if scope == "application":
-        return [c for c in columns if not c.startswith(AGGREGATE_PREFIXES)]
-    return list(columns)
+    elif scope == "application":
+        selected = [c for c in columns if not c.startswith(AGGREGATE_PREFIXES)]
+    else:
+        selected = list(columns)
+    return [c for c in selected if c not in PROTECTED_ATTRIBUTES]
 
 
 def make_input_defaults(df: pd.DataFrame) -> dict[str, object]:

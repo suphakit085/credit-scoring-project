@@ -31,20 +31,12 @@ st.set_page_config(
 
 
 LABELS = {
-    "gender": {"F": "หญิง", "M": "ชาย", "XNA": "ไม่ระบุ"},
     "education": {
         "Secondary / secondary special": "มัธยมศึกษา",
         "Higher education": "ปริญญาตรี",
         "Incomplete higher": "ไม่จบปริญญาตรี",
         "Lower secondary": "มัธยมต้น",
         "Academic degree": "ปริญญาโทขึ้นไป",
-    },
-    "family": {
-        "Married": "สมรส",
-        "Single / not married": "โสด",
-        "Civil marriage": "สมรสตามกฎหมาย",
-        "Separated": "แยกกันอยู่",
-        "Widow": "หม้าย",
     },
     "housing": {
         "House / apartment": "บ้านหรืออพาร์ตเมนต์",
@@ -683,29 +675,27 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
     )
 
     with st.sidebar.form("applicant_form", border=False):
-        with st.expander("01  ผู้สมัครและครอบครัว", expanded=True):
-            gender = st.selectbox(
-                "เพศ",
-                category_options(bundle, "CODE_GENDER", "gender"),
-                format_func=format_choice("gender"),
-            )
+        # เพศและสถานภาพสมรสถูกตัดออกจากโมเดลโดยเจตนา (PROTECTED_ATTRIBUTES ใน
+        # src/model_training.py) จำนวนสมาชิกครัวเรือนจึงถามตรงๆ จากจำนวนผู้ใหญ่
+        # แทนการอนุมานจากสถานภาพสมรสแบบเดิม
+        with st.expander("01  ผู้สมัครและครัวเรือน", expanded=True):
             age = st.slider("อายุ (ปี)", 20, 70, 35)
             education = st.selectbox(
                 "ระดับการศึกษา",
                 category_options(bundle, "NAME_EDUCATION_TYPE", "education"),
                 format_func=format_choice("education"),
             )
-            family_status = st.selectbox(
-                "สถานะครอบครัว",
-                category_options(bundle, "NAME_FAMILY_STATUS", "family"),
-                format_func=format_choice("family"),
-            )
             housing_type = st.selectbox(
                 "ประเภทที่อยู่อาศัย",
                 category_options(bundle, "NAME_HOUSING_TYPE", "housing"),
                 format_func=format_choice("housing"),
             )
-            children = st.number_input("จำนวนบุตร", min_value=0, max_value=15, value=0)
+            adult_column, child_column = st.columns(2)
+            adults = adult_column.number_input(
+                "ผู้ใหญ่ในครัวเรือน", min_value=1, max_value=10, value=2,
+                help="นับรวมผู้สมัครด้วย",
+            )
+            children = child_column.number_input("จำนวนบุตร", min_value=0, max_value=15, value=0)
 
         with st.expander("02  ข้อมูลการเงิน", expanded=True):
             income = st.number_input(
@@ -788,13 +778,11 @@ def collect_sidebar_inputs(bundle: dict) -> tuple[bool, dict]:
         submitted = st.form_submit_button("ประเมินความเสี่ยง", type="primary", use_container_width=True)
 
     values = {
-        "CODE_GENDER": category_value(gender),
         "DAYS_BIRTH": -age * 365.25,
         "NAME_EDUCATION_TYPE": category_value(education),
-        "NAME_FAMILY_STATUS": category_value(family_status),
         "NAME_HOUSING_TYPE": category_value(housing_type),
         "CNT_CHILDREN": children,
-        "CNT_FAM_MEMBERS": children + (2 if family_status in {"Married", "Civil marriage"} else 1),
+        "CNT_FAM_MEMBERS": adults + children,
         "AMT_INCOME_TOTAL": income,
         "AMT_CREDIT": credit,
         "AMT_ANNUITY": annuity,

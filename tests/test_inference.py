@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from src.inference import build_input_frame, probability_to_score, risk_level
@@ -6,34 +5,38 @@ from src.inference import build_input_frame, probability_to_score, risk_level
 
 def bundle_stub():
     return {
-        "input_columns": ["AMT_CREDIT", "CODE_GENDER", "BUREAU_AMT_CREDIT_mean"],
-        "served_columns": ["AMT_CREDIT", "CODE_GENDER"],
+        "input_columns": ["AMT_CREDIT", "NAME_HOUSING_TYPE", "BUREAU_AMT_CREDIT_mean"],
+        "served_columns": ["AMT_CREDIT", "NAME_HOUSING_TYPE"],
         "input_defaults": {
             "AMT_CREDIT": 100.0,
-            "CODE_GENDER": "F",
+            "NAME_HOUSING_TYPE": "House / apartment",
             "BUREAU_AMT_CREDIT_mean": 42.0,
         },
     }
 
 
 def test_build_input_frame_uses_supplied_values():
-    frame = build_input_frame({"AMT_CREDIT": 250.0, "CODE_GENDER": "M"}, bundle_stub())
+    frame = build_input_frame(
+        {"AMT_CREDIT": 250.0, "NAME_HOUSING_TYPE": "With parents"}, bundle_stub()
+    )
     assert frame.loc[0, "AMT_CREDIT"] == 250.0
-    assert frame.loc[0, "CODE_GENDER"] == "M"
+    assert frame.loc[0, "NAME_HOUSING_TYPE"] == "With parents"
 
 
 def test_unsupplied_served_column_becomes_missing_not_median():
     """A field the officer left blank must look absent, not average.
 
-    Filling it with the training median sets the imputer's missing indicator to
-    zero, telling the model the value was present.
+    Filling it with the training default sets the imputer's missing indicator
+    to zero, telling the model the value was present.
     """
     frame = build_input_frame({"AMT_CREDIT": 250.0}, bundle_stub())
-    assert frame.loc[0, "CODE_GENDER"] is np.nan or frame["CODE_GENDER"].isna().iloc[0]
+    assert frame["NAME_HOUSING_TYPE"].isna().iloc[0]
 
 
 def test_unserved_column_still_falls_back_to_training_default():
-    frame = build_input_frame({"AMT_CREDIT": 250.0, "CODE_GENDER": "F"}, bundle_stub())
+    frame = build_input_frame(
+        {"AMT_CREDIT": 250.0, "NAME_HOUSING_TYPE": "With parents"}, bundle_stub()
+    )
     assert frame.loc[0, "BUREAU_AMT_CREDIT_mean"] == 42.0
 
 

@@ -27,13 +27,26 @@ def bundle():
     return load_bundle()
 
 
+def raw_probability(values, bundle):
+    """The model's output before isotonic calibration.
+
+    Use this to prove an input reaches the model. Calibration is a step
+    function, so two inputs the model does tell apart can still land on the
+    same calibrated step: a pensioner and an otherwise identical employee
+    scored 0.04625 and 0.04662 raw, and 4.72% each after calibration.
+    """
+    from src.feature_generation import generate_features
+
+    frame = generate_features(build_input_frame(values, bundle))
+    matrix = bundle["variance_filter"].transform(bundle["preprocessor"].transform(frame))
+    return float(bundle["model"].predict_proba(matrix[:, bundle["selected_indices"]])[0, 1])
+
+
 def officer_payload(**overrides):
     """The payload app/streamlit_app.py sends for an employed applicant."""
     values = {
-        "CODE_GENDER": "F",
         "DAYS_BIRTH": -35 * 365.25,
         "NAME_EDUCATION_TYPE": "Higher education",
-        "NAME_FAMILY_STATUS": "Married",
         "NAME_HOUSING_TYPE": "House / apartment",
         "CNT_CHILDREN": 0,
         "CNT_FAM_MEMBERS": 2,
@@ -65,6 +78,18 @@ def test_every_served_column_is_also_a_model_input(bundle):
     assert set(bundle["served_columns"]).issubset(bundle["input_columns"])
 
 
+def test_shipped_model_never_sees_protected_attributes(bundle):
+    """Sex and marital status must not reach the model through any route."""
+    from src.model_training import PROTECTED_ATTRIBUTES
+
+    for attribute in PROTECTED_ATTRIBUTES:
+        assert attribute not in bundle["input_columns"]
+        assert not any(
+            name == attribute or name.startswith(f"{attribute}_")
+            for name in bundle["selected_feature_names"]
+        ), f"{attribute} leaked into a selected feature"
+
+
 def test_prediction_is_a_valid_probability(bundle):
     probability = predict_default_probability(officer_payload(), bundle)
     assert 0.0 <= probability <= 1.0
@@ -83,12 +108,9 @@ def test_external_scores_move_the_prediction(bundle):
 
 def test_missing_external_score_is_accepted_and_changes_the_answer(bundle):
     """'ไม่พบในระบบ' must reach the model as missing, not as an invented 0.5."""
-    known = predict_default_probability(officer_payload(), bundle)
-    unknown = predict_default_probability(
-        officer_payload(EXT_SOURCE_1=np.nan, EXT_SOURCE_2=np.nan, EXT_SOURCE_3=np.nan), bundle
-    )
-    assert 0.0 <= unknown <= 1.0
-    assert unknown != known
+    missing = officer_payload(EXT_SOURCE_1=np.nan, EXT_SOURCE_2=np.nan, EXT_SOURCE_3=np.nan)
+    assert 0.0 <= predict_default_probability(missing, bundle) <= 1.0
+    assert raw_probability(missing, bundle) != raw_probability(officer_payload(), bundle)
 
 
 def test_missing_external_score_sets_the_imputer_indicator(bundle):
@@ -118,7 +140,7 @@ def test_pensioner_is_scored_as_missing_employment(bundle):
     )
     probability = predict_default_probability(pensioner, bundle)
     assert 0.0 <= probability <= 1.0
-    assert probability != predict_default_probability(officer_payload(), bundle)
+    assert raw_probability(pensioner, bundle) != raw_probability(officer_payload(), bundle)
 
 
 def test_a_renamed_form_field_fails_loudly(bundle):
